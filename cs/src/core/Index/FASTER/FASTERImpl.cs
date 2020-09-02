@@ -108,6 +108,8 @@ namespace FASTER.core
                         TraceBackForKeyMatch(ref key,
                                                 logicalAddress,
                                                 hlog.HeadAddress,
+                                                sessionCtx.excludedVersionStart,
+                                                sessionCtx.excludedVersionEnd,
                                                 out logicalAddress,
                                                 out physicalAddress);
                     }
@@ -278,6 +280,8 @@ namespace FASTER.core
                     TraceBackForKeyMatch(ref key,
                                         logicalAddress,
                                         hlog.ReadOnlyAddress,
+                                        sessionCtx.excludedVersionStart,
+                                        sessionCtx.excludedVersionEnd,
                                         out logicalAddress,
                                         out physicalAddress);
                 }
@@ -547,6 +551,8 @@ namespace FASTER.core
                     logicalAddress = hlog.GetInfo(physicalAddress).PreviousAddress;
                     TraceBackForKeyMatch(ref key, logicalAddress,
                                             hlog.HeadAddress,
+                                            sessionCtx.excludedVersionStart,
+                                            sessionCtx.excludedVersionEnd,
                                             out logicalAddress,
                                             out physicalAddress);
                 }
@@ -888,6 +894,8 @@ namespace FASTER.core
                     TraceBackForKeyMatch(ref key,
                                         logicalAddress,
                                         hlog.ReadOnlyAddress,
+                                        sessionCtx.excludedVersionStart,
+                                        sessionCtx.excludedVersionEnd,
                                         out logicalAddress,
                                         out physicalAddress);
                 }
@@ -1151,6 +1159,8 @@ namespace FASTER.core
                         TraceBackForKeyMatch(ref key,
                                                 logicalAddress,
                                                 fromAddress,
+                                                sessionCtx.excludedVersionStart,
+                                                sessionCtx.excludedVersionEnd,
                                                 out logicalAddress,
                                                 out _);
                     }
@@ -1269,6 +1279,8 @@ namespace FASTER.core
                     TraceBackForKeyMatch(ref pendingContext.key.Get(),
                                             logicalAddress,
                                             hlog.HeadAddress,
+                                            currentCtx.excludedVersionStart,
+                                            currentCtx.excludedVersionEnd,
                                             out logicalAddress,
                                             out physicalAddress);
                 }
@@ -1398,6 +1410,8 @@ namespace FASTER.core
                     TraceBackForKeyMatch(ref key,
                                             logicalAddress,
                                             hlog.HeadAddress,
+                                            sessionCtx.excludedVersionStart,
+                                            sessionCtx.excludedVersionEnd,
                                             out logicalAddress,
                                             out physicalAddress);
                 }
@@ -1687,12 +1701,22 @@ namespace FASTER.core
                 Thread.Yield();
             }
         }
+        
+        private bool RecordInExcludedVersion(long physicalAddress, long excludedVersionStart, long excludedVersionEnd)
+        {
+            ref var currentRecordInfo = ref hlog.GetInfo(physicalAddress);
+            var version = (long) currentRecordInfo.Version;
+            return version >= excludedVersionStart && version < excludedVersionEnd;
+        }
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool TraceBackForKeyMatch(
                                     ref Key key,
                                     long fromLogicalAddress,
                                     long minOffset,
+                                    long excludedVersionStart,
+                                    long excludedVersionEnd,
                                     out long foundLogicalAddress,
                                     out long foundPhysicalAddress)
         {
@@ -1700,7 +1724,9 @@ namespace FASTER.core
             while (foundLogicalAddress >= minOffset)
             {
                 foundPhysicalAddress = hlog.GetPhysicalAddress(foundLogicalAddress);
-                if (comparer.Equals(ref key, ref hlog.GetKey(foundPhysicalAddress)))
+                if (!hlog.GetInfo(foundPhysicalAddress).Invalid &&
+                    comparer.Equals(ref key, ref hlog.GetKey(foundPhysicalAddress)) &&
+                    !RecordInExcludedVersion(foundPhysicalAddress, excludedVersionStart, excludedVersionEnd))
                 {
                     return true;
                 }

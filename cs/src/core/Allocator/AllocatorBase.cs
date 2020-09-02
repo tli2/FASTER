@@ -163,7 +163,7 @@ namespace FASTER.core
         /// <summary>
         /// Device
         /// </summary>
-        protected readonly IDevice device;
+        public readonly IDevice device;
         /// <summary>
         /// Sector size
         /// </summary>

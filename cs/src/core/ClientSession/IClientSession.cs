@@ -9,5 +9,15 @@ namespace FASTER.core
     internal interface IClientSession
     {
         void AtomicSwitch(int version);
+
+        long Version();
+
+        string Id();
+
+        FasterRollbackException GetCannedException();
+        
+        void SetCannedException(FasterRollbackException e);
+
+        ref CommitPoint CommitPoint();
     }
 }

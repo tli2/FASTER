@@ -33,7 +33,7 @@ namespace FASTER.core
         CPR_PENDING_DETECTED
     }
 
-    internal class SerializedFasterExecutionContext
+    public class SerializedFasterExecutionContext
     {
         internal int version;
         internal long serialNum;
@@ -65,7 +65,7 @@ namespace FASTER.core
 
     public partial class FasterKV<Key, Value> : FasterBase, IFasterKV<Key, Value>
     {
-        internal struct PendingContext<Input, Output, Context>
+        public struct PendingContext<Input, Output, Context>
         {
             // User provided information
             internal OperationType type;
@@ -91,10 +91,11 @@ namespace FASTER.core
             }
         }
 
-        internal sealed class FasterExecutionContext<Input, Output, Context> : SerializedFasterExecutionContext
+        public sealed class FasterExecutionContext<Input, Output, Context> : SerializedFasterExecutionContext
         {
             public Phase phase;
             public bool[] markers;
+            public long excludedVersionStart, excludedVersionEnd;
             public long totalPending;
             public Queue<PendingContext<Input, Output, Context>> retryRequests;
             public Dictionary<long, PendingContext<Input, Output, Context>> ioPendingRequests;
@@ -383,7 +384,7 @@ namespace FASTER.core
         }
     }
 
-    internal struct HybridLogCheckpointInfo
+    public struct HybridLogCheckpointInfo
     {
         public HybridLogRecoveryInfo info;
         public IDevice snapshotFileDevice;

@@ -26,6 +26,8 @@ namespace FASTER.core
         private readonly bool WriteDefaultOnDelete;
         internal bool RelaxedCPR;
 
+        internal long excludedVersionStart;
+
         /// <summary>
         /// Use relaxed version of CPR, where ops pending I/O
         /// are not part of CPR checkpoint. This mode allows
@@ -203,6 +205,23 @@ namespace FASTER.core
             systemState.phase = Phase.REST;
             systemState.version = 1;
         }
+        
+        public bool Rollback(long rollbackVersionStart, long logScanStart, ConcurrentDictionary<string, CommitPoint> sessionProgress, out TaskCompletionSource<object> completion)
+        {
+            return StartStateMachine(new RollbackStateMachine(rollbackVersionStart, logScanStart, sessionProgress), out completion);
+        }
+        
+        public bool BumpVersion(out Guid token, long proposedNextVersion, out TaskCompletionSource<object> completion)
+        {
+            // Only checkpoint if version is indeed smaller than requested version
+            var result = StartStateMachine(new HybridLogCheckpointStateMachine(new FoldOverCheckpointTask(), proposedNextVersion),
+                out completion, s => s.version < proposedNextVersion);
+
+            // TODO(Tianyu): This is technically a very rare race --- it is possible for the checkpoint to complete
+            // before these execute, but it's so rare we probably shouldn't care for now
+            token = _hybridLogCheckpointToken;
+            return result;
+        }
 
         /// <summary>
         /// Initiate full checkpoint
@@ -222,7 +241,7 @@ namespace FASTER.core
             else
                 backend = new SnapshotCheckpointTask();
 
-            var result = StartStateMachine(new FullCheckpointStateMachine(backend, targetVersion));
+            var result = StartStateMachine(new FullCheckpointStateMachine(backend, targetVersion), out _);
             token = _hybridLogCheckpointToken;
             return result;
         }
@@ -248,7 +267,7 @@ namespace FASTER.core
             else
                 throw new FasterException("Unsupported full checkpoint type");
 
-            var result = StartStateMachine(new FullCheckpointStateMachine(backend, targetVersion));
+            var result = StartStateMachine(new FullCheckpointStateMachine(backend, targetVersion), out _);
             token = _hybridLogCheckpointToken;
             return result;
         }
@@ -260,7 +279,7 @@ namespace FASTER.core
         /// <returns>Whether we could initiate the checkpoint</returns>
         public bool TakeIndexCheckpoint(out Guid token)
         {
-            var result = StartStateMachine(new IndexSnapshotStateMachine());
+            var result = StartStateMachine(new IndexSnapshotStateMachine(), out _);
             token = _indexCheckpointToken;
             return result;
         }
@@ -279,7 +298,7 @@ namespace FASTER.core
             else
                 backend = new SnapshotCheckpointTask();
 
-            var result = StartStateMachine(new HybridLogCheckpointStateMachine(backend, targetVersion));
+            var result = StartStateMachine(new HybridLogCheckpointStateMachine(backend, targetVersion), out _);
             token = _hybridLogCheckpointToken;
             return result;
         }
@@ -301,7 +320,7 @@ namespace FASTER.core
             else
                 throw new FasterException("Unsupported checkpoint type");
 
-            var result = StartStateMachine(new HybridLogCheckpointStateMachine(backend, targetVersion));
+            var result = StartStateMachine(new HybridLogCheckpointStateMachine(backend, targetVersion), out _);
             token = _hybridLogCheckpointToken;
             return result;
         }
@@ -461,7 +480,7 @@ namespace FASTER.core
         /// <returns>Whether the request succeeded</returns>
         public bool GrowIndex()
         {
-            return StartStateMachine(new IndexResizeStateMachine());
+            return StartStateMachine(new IndexResizeStateMachine(), out _);
         }
 
         /// <summary>

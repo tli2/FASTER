@@ -74,7 +74,7 @@ namespace FASTER.core
     /// multiple state machines, or to choose the task at runtime and achieve polymorphism in the behavior
     /// of a concrete state machine class.
     /// </summary>
-    internal interface ISynchronizationTask
+    public interface ISynchronizationTask
     {
         /// <summary>
         /// This function is invoked immediately before the global state machine enters the given state.

@@ -25,7 +25,7 @@ namespace FASTER.core
     {
         private FastThreadLocal<FasterKV<Key, Value>.FasterExecutionContext<Input, Output, Context>> _threadCtx;
 
-        private readonly FasterKV<Key, Value> _fasterKV;
+        public readonly FasterKV<Key, Value> _fasterKV;
         private readonly Functions _functions;
         private readonly IVariableLengthStruct<Value, Input> _variableLengthStructForInput;
 
@@ -318,11 +318,23 @@ namespace FASTER.core
         private struct LegacyFasterSession : IFasterSession<Key, Value, Input, Output, Context>
         {
             private readonly FasterKV<Key, Value, Input, Output, Context, Functions> _fasterKV;
+            private static CommitPoint commitPoint;
 
             public LegacyFasterSession(FasterKV<Key, Value, Input, Output, Context, Functions> fasterKV)
             {
                 _fasterKV = fasterKV;
             }
+            
+            public long Version() => 0;
+
+            public string Id() => "";
+
+            public FasterRollbackException GetCannedException() => null;
+
+            public void SetCannedException(FasterRollbackException e) {}
+
+            public ref CommitPoint CommitPoint() => ref commitPoint;
+
 
             public void CheckpointCompletionCallback(string guid, CommitPoint commitPoint)
             {

@@ -29,6 +29,7 @@ namespace FASTER.core
         internal readonly bool SupportAsync = false;
         internal readonly FasterKV<Key, Value>.FasterExecutionContext<Input, Output, Context> ctx;
         internal CommitPoint LatestCommitPoint;
+        private FasterRollbackException cannedRollbackException;
 
         internal readonly Functions functions;
         internal readonly IVariableLengthStruct<Value, Input> variableLengthStruct;
@@ -69,6 +70,17 @@ namespace FASTER.core
                 UnsafeResumeThread();
         }
 
+        public long Version() => ctx.version;
+
+        public string Id() => ctx.guid;
+
+        public FasterRollbackException GetCannedException() => cannedRollbackException;
+
+        public void SetCannedException(FasterRollbackException e) => cannedRollbackException = e;
+
+        public ref CommitPoint CommitPoint() => ref LatestCommitPoint;
+
+        
         /// <summary>
         /// Get session ID
         /// </summary>
@@ -426,7 +438,7 @@ namespace FASTER.core
         /// Call SuspendThread before any async op
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void UnsafeResumeThread()
+        public void UnsafeResumeThread()
         {
             fht.epoch.Resume();
             fht.InternalRefresh(ctx, FasterSession);
@@ -436,7 +448,7 @@ namespace FASTER.core
         /// Suspend session on current thread
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal void UnsafeSuspendThread()
+        public void UnsafeSuspendThread()
         {
             fht.epoch.Suspend();
         }
@@ -495,7 +507,17 @@ namespace FASTER.core
             {
                 _clientSession = clientSession;
             }
+            
+            public long Version() => _clientSession.Version();
 
+            public string Id() => _clientSession.Id();
+
+            public FasterRollbackException GetCannedException() => _clientSession.GetCannedException();
+
+            public void SetCannedException(FasterRollbackException e) => _clientSession.GetCannedException();
+
+            public ref CommitPoint CommitPoint() => ref _clientSession.CommitPoint();
+            
             public void CheckpointCompletionCallback(string guid, CommitPoint commitPoint)
             {
                 _clientSession.functions.CheckpointCompletionCallback(guid, commitPoint);

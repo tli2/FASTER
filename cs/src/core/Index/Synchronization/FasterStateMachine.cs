@@ -19,6 +19,15 @@ namespace FASTER.core
         // if no state machine is active at this time.
         private ISynchronizationStateMachine currentSyncStateMachine;
 
+        public TaskCompletionSource<object> stateMachineCompletion;
+
+        private List<ISynchronizationTask> additionalTasks = new List<ISynchronizationTask>();
+
+        public void UnsafeRegisterAdditionalAction(ISynchronizationTask task)
+        {
+            additionalTasks.Add(task);
+        }
+
         internal SystemState SystemState => systemState;
 
         /// <summary>
@@ -26,10 +35,28 @@ namespace FASTER.core
         /// </summary>
         /// <param name="stateMachine">The state machine to start</param>
         /// <returns>true if the state machine has started, false otherwise</returns>
-        private bool StartStateMachine(ISynchronizationStateMachine stateMachine)
+        private bool StartStateMachine(ISynchronizationStateMachine stateMachine,
+            out TaskCompletionSource<object> stateMachineCompletion, Predicate<SystemState> predicate = null)
         {
             // return immediately if there is a state machine under way.
-            if (Interlocked.CompareExchange(ref stateMachineActive, 1, 0) != 0) return false;
+            if (Interlocked.CompareExchange(ref stateMachineActive, 1, 0) != 0)
+            {
+                stateMachineCompletion = this.stateMachineCompletion;
+                return false;
+            }
+            // Don't execute state machine if predicate not satisfied
+            if (predicate != null && !predicate(systemState))
+            {
+                stateMachineCompletion = new TaskCompletionSource<object>();
+                stateMachineCompletion.SetResult(null);
+                _hybridLogCheckpointToken = default;
+                stateMachineActive = 0;
+                return true;
+            }
+            
+            this.stateMachineCompletion = new TaskCompletionSource<object>();
+            
+            stateMachineCompletion = this.stateMachineCompletion;
             currentSyncStateMachine = stateMachine;
             // No latch required because the taskMutex guards against other tasks starting, and only a new task
             // is allowed to change faster global state from REST

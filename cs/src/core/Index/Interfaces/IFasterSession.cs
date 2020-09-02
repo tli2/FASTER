@@ -4,11 +4,21 @@
     /// Provides thread management and callback to checkpoint completion (called state machine).
     /// </summary>
     // This is split to two interfaces just to limit infection of <Key, Value, Input, Output, Context> type parameters
-    internal interface IFasterSession
+    public interface IFasterSession
     {
         void UnsafeResumeThread();
         void UnsafeSuspendThread();
         void CheckpointCompletionCallback(string sessionId, CommitPoint commitPoint);
+        long Version();
+
+        string Id();
+
+        FasterRollbackException GetCannedException();
+        
+        void SetCannedException(FasterRollbackException e);
+
+        ref CommitPoint CommitPoint();
+
     }
 
     /// <summary>

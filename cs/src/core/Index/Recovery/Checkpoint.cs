@@ -29,6 +29,7 @@ namespace FASTER.core
         public const int WaitPending = 2;
         public const int WaitFlush = 3;
         public const int CheckpointCompletionCallback = 4;
+        public const int RollbackInProg = 5;
     }
 
     public partial class FasterKV<Key, Value>
@@ -39,7 +40,7 @@ namespace FASTER.core
             
         internal Guid _indexCheckpointToken;
         internal Guid _hybridLogCheckpointToken;
-        internal HybridLogCheckpointInfo _hybridLogCheckpoint;
+        public HybridLogCheckpointInfo _hybridLogCheckpoint;
 
         internal Task<LinkedCheckpointInfo> CheckpointTask => checkpointTcs.Task;
 

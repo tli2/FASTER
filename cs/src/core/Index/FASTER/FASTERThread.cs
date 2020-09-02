@@ -78,7 +78,7 @@ namespace FASTER.core
             ThreadStateMachineStep(ctx, fasterSession, default);
         }
 
-        internal void InitContext<Input, Output, Context>(FasterExecutionContext<Input, Output, Context> ctx, string token, long lsn = -1)
+        internal void InitContext<Input, Output, Context>(FasterExecutionContext<Input, Output, Context> ctx, string token, long lsn = -1, long excludedVersionStart = long.MaxValue)
         {
             ctx.phase = Phase.REST;
             // The system version starts at 1. Because we do not know what the current state machine state is,
@@ -86,6 +86,7 @@ namespace FASTER.core
             // never "catch up" with the rest of the system when stepping through the state machine as it is ahead.
             ctx.version = 1;
             ctx.markers = new bool[8];
+            ctx.excludedVersionStart = excludedVersionStart;
             ctx.serialNum = lsn;
             ctx.guid = token;
 
