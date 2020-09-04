@@ -89,6 +89,7 @@ namespace FASTER.benchmark
         {
             var sw = new Stopwatch();
             sw.Start();
+            fasterServerless.checkpointLatencies.Clear();
             while (true)
             {
                 var timeElapsed = sw.ElapsedMilliseconds;
@@ -100,7 +101,8 @@ namespace FASTER.benchmark
                 if (fasterServerless.CurrentVersion() < fasterServerless.inProgressBump)
                     fasterServerless.localFaster._fasterKV.BumpVersion(out _, fasterServerless.inProgressBump, out _);
             }
-            Console.WriteLine($"server performed {fasterServerless.numCheckpointPerformed} checkpoints");
+            if (fasterServerless.checkpointLatencies.Count != 0)
+                Console.WriteLine($"server performed {fasterServerless.checkpointLatencies.Count} checkpoints, average duration {fasterServerless.checkpointLatencies.Count} ms");
         }
 
         private void Setup(BenchmarkConfiguration configuration)
@@ -155,10 +157,10 @@ namespace FASTER.benchmark
             var metadataStore =
                 new MetadataStore(new AzureSqlOwnershipMapping(configuration.connString), messageManager);
             var dprManager = new AzureSqlDprManagerV2(configuration.connString, me);
-            device = Devices.CreateLogDevice("D:\\hlog", deleteOnClose: true);
+            device = Devices.CreateLogDevice("D:\\hlog", true, true);
             fasterServerless = new FasterServerless<Key, Value, Input, Output, Functions>(
                 metadataStore, messageManager, dprManager, BenchmarkConsts.kMaxKey / 2, new Functions(),
-                new LogSettings {LogDevice = device},
+                new LogSettings {LogDevice = device, PreallocateLog = true},
                 checkpointSettings: new CheckpointSettings {CheckpointDir = "D:\\checkpoints"}, 
                 bucketingScheme: new YcsbBucketingScheme(),
                 serializer: new YcsbParameterSerializer());
@@ -174,7 +176,7 @@ namespace FASTER.benchmark
             }
             
             PrintToCoordinator("Starting Server", coordinatorConn);
-            threadPool.Start(configuration.execThreadCount, fasterServerless);
+            threadPool.Start(1, fasterServerless);
             messageManager.StartServer(fasterServerless, threadPool);
 
             PrintToCoordinator("Executing setup.", coordinatorConn);
@@ -183,6 +185,11 @@ namespace FASTER.benchmark
             var sw = new Stopwatch();
             sw.Start();
             Setup(configuration);
+            if (configuration.execThreadCount < 16)
+            {
+                long affinityMask = (1 << (configuration.execThreadCount + 1)) - 1;
+                Process.GetCurrentProcess().ProcessorAffinity = (IntPtr) affinityMask;
+            }
             sw.Stop();
             PrintToCoordinator($"Loading time: {sw.ElapsedMilliseconds}ms", coordinatorConn);
             coordinatorConn.SendBenchmarkControlMessage("setup finished");

@@ -18,7 +18,7 @@ namespace FASTER.serverless
         where Value : new()
         where Functions : IFunctions<Key, Value, Input, Output, Empty>
     {
-        public long numCheckpointPerformed = 0;
+        public List<long> checkpointLatencies = new List<long>();
         internal ConcurrentQueue<OutstandingLocalVersion> toReport = new ConcurrentQueue<OutstandingLocalVersion>();
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

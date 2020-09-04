@@ -246,7 +246,7 @@ namespace FASTER.benchmark
                         }
                     }
 
-                    for (var i = 0; i < 30; i++)
+                    for (var i = 0; i < 120; i++)
                     {
                         opFile.WriteLine(ops[i]);
                         commitFile.WriteLine(commits[i]);
@@ -272,7 +272,7 @@ namespace FASTER.benchmark
                     var random =  new Random();
                     for (var i = 0; i < startTimes.Count; i++)
                     {
-                        if (random.NextDouble() < 0.01)
+                        if (random.NextDouble() < 0.001)
                         {
                             if (commitTimes[i] == 0.0) continue;
                             opFile.WriteLine(endTimes[i] - startTimes[i]);

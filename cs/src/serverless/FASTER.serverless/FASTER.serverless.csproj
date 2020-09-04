@@ -14,7 +14,7 @@
         <ApplicationIcon />
         <OutputType>Library</OutputType>
         <StartupObject />
-        <AssemblyOriginatorKeyFile>../../FASTER.snk</AssemblyOriginatorKeyFile>
+        <AssemblyOriginatorKeyFile>../../../FASTER.snk</AssemblyOriginatorKeyFile>
         <DelaySign>false</DelaySign>
         <DocumentationFile>bin\$(Platform)\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
     </PropertyGroup>

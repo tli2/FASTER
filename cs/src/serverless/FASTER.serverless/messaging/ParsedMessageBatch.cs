@@ -10,7 +10,7 @@ namespace FASTER.serverless
         where Key : new()
         where Value : new()
     {
-        public const int MaxBatchSize = 1024;
+        public const int MaxBatchSize = 4096;
         internal BatchHeader header;
         internal Message<Key, Value, Input, Output>[] messages;
         internal WorkerVersion[] deps;

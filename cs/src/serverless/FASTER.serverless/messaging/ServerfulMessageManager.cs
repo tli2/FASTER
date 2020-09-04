@@ -250,7 +250,7 @@ namespace FASTER.serverless
     {
         // Should be large enough for most batches
         // TODO(Tianyu): Need to actually either enforce batch size or handle cases where batches don't fit
-        internal const int batchMaxSize = 1 << 18;
+        internal const int batchMaxSize = 1 << 20;
         private readonly Worker me;
         private readonly ConcurrentDictionary<Worker, ServerfulWorkerInfo> routingTable;
 

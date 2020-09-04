@@ -1,4 +1,5 @@
 ﻿﻿using System.Collections.Generic;
+ using System.Diagnostics;
  using System.Threading;
 using System.Threading.Tasks;
 using FASTER.core;
@@ -63,6 +64,7 @@ namespace FASTER.serverless
         where Functions : IFunctions<Key, Value, Input, Output, Empty>
     {
         private FasterServerless<Key, Value, Input, Output, Functions> worker;
+        private Stopwatch stopwatch = new Stopwatch();
 
         public VersionBoundaryCaptureTask(FasterServerless<Key, Value, Input, Output, Functions> worker)
         {
@@ -75,6 +77,9 @@ namespace FASTER.serverless
         {
             switch (next.phase)
             {
+                case Phase.PREPARE:
+                    stopwatch.Restart();
+                    break;
                 case Phase.IN_PROGRESS:
                 case Phase.ROLLBACK_THROW:
                     worker.stableLocalVersion = worker.liveLocalVersion;
@@ -90,7 +95,8 @@ namespace FASTER.serverless
                     worker.stableLocalVersion.checkpointSessionProgress = faster._hybridLogCheckpoint.info.checkpointTokens;
                     break;
                 case Phase.PERSISTENCE_CALLBACK:
-                    Interlocked.Increment(ref worker.numCheckpointPerformed);
+                    stopwatch.Stop();
+                    worker.checkpointLatencies.Add(stopwatch.ElapsedMilliseconds);
                     worker.toReport.Enqueue(worker.stableLocalVersion);
                     break;
             }
