@@ -34,7 +34,7 @@ namespace FASTER.core
         /// us to eliminate the WAIT_PENDING phase, and allows
         /// sessions to be suspended. Do not modify during checkpointing.
         /// </summary>
-        internal void UseRelaxedCPR() => RelaxedCPR = true;
+        public void UseRelaxedCPR() => RelaxedCPR = true;
 
         /// <summary>
         /// Number of used entries in hash index

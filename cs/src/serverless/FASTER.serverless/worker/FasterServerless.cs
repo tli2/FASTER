@@ -119,6 +119,7 @@ namespace FASTER.serverless
 
             this.serializer = serializer;
             this.clientOnly = clientOnly;
+            localFaster._fasterKV.UseRelaxedCPR();
         }
 
         public FasterServerless(

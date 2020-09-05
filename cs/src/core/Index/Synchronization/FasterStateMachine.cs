@@ -91,13 +91,19 @@ namespace FASTER.core
 
             // Execute custom task logic
             currentSyncStateMachine.GlobalBeforeEnteringState(nextState, this);
+            foreach (var task in additionalTasks)
+                task.GlobalBeforeEnteringState(nextState, this);
             var success = MakeTransition(intermediate, nextState);
             // Guaranteed to succeed, because other threads will always block while the system is in intermediate.
             Debug.Assert(success);
             currentSyncStateMachine.GlobalAfterEnteringState(nextState, this);
 
             // Mark the state machine done as we exit the state machine.
-            if (nextState.phase == Phase.REST) stateMachineActive = 0;
+            if (nextState.phase == Phase.REST)
+            {
+                stateMachineCompletion.SetResult(null);
+                stateMachineActive = 0;
+            }
         }
 
 

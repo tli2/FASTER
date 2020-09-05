@@ -109,9 +109,12 @@ namespace FASTER.core
                         // Need to be very careful here as threadCtx is changing
                         var _ctx = prev.phase == Phase.ROLLBACK_THROW ? ctx.prevCtx : ctx;
 
+                        var tokens = faster._hybridLogCheckpoint.info.checkpointTokens;
+                        if (!faster.SameCycle(current) || tokens == null)
+                            return;
                         if (!_ctx.markers[EpochPhaseIdx.RollbackInProg])
                         {
-                            faster.AtomicSwitch(ctx, ctx.prevCtx, _ctx.version);
+                            faster.AtomicSwitch(ctx, ctx.prevCtx, _ctx.version, tokens);
                             faster.InitContext(ctx, ctx.prevCtx.guid, ctx.prevCtx.serialNum,
                                 rollbackVersionStart);
                             ctx.excludedVersionStart = faster.excludedVersionStart;
