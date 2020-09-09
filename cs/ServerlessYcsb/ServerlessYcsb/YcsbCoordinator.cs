@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.SqlClient;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -45,6 +46,11 @@ namespace FASTER.benchmark
             }
 
             Thread.Sleep(5000);
+            
+            var conn = new SqlConnection(benchmarkConfig.connString);
+            conn.Open();
+            var cleanup = new SqlCommand("EXEC cleanup", conn);
+            cleanup.ExecuteNonQuery();
 
             var metadataStore = new AzureSqlOwnershipMapping(benchmarkConfig.connString);
             // Setup metadata store
@@ -66,6 +72,7 @@ namespace FASTER.benchmark
                 var ip = IPAddress.Parse(workerInfo.GetAddress());
                 var endPoint = new IPEndPoint(ip, workerInfo.GetPort() + 1);
                 var sender = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                sender.NoDelay = true;
                 sender.Connect(endPoint);
 
                 sender.SendBenchmarkControlMessage(benchmarkConfig);

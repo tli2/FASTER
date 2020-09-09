@@ -140,10 +140,10 @@ namespace FASTER.benchmark
             var metadataStore =
                 new MetadataStore(new AzureSqlOwnershipMapping(configuration.connString), messageManager);
             var dprManager = new AzureSqlDprManagerV1(configuration.connString, me);
-            device = Devices.CreateLogDevice("D:\\hlog", deleteOnClose: true);
+            device = Devices.CreateLogDevice("D:\\hlog", deleteOnClose: true, preallocateFile:true);
             fasterServerless = new FasterServerless<Key, Value, Input, Output, Functions>(
                 metadataStore, messageManager, dprManager, BenchmarkConsts.kMaxKey / 2, new Functions(),
-                new LogSettings {LogDevice = device},
+                new LogSettings {LogDevice = device, PreallocateLog = true},
                 checkpointSettings: new CheckpointSettings {CheckpointDir = "D:\\checkpoints"}, 
                 bucketingScheme: new YcsbBucketingScheme(),
                 serializer: new YcsbParameterSerializer());

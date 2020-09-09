@@ -101,6 +101,8 @@ namespace FASTER.serverless
                                 localSession.Refresh();
                             }
                             catch (FasterRollbackException) {}
+                            if (CurrentVersion() < inProgressBump)
+                                localFaster._fasterKV.BumpVersion(out _, inProgressBump, out _);
                         }
                     }
 

@@ -302,6 +302,7 @@ namespace FASTER.serverless
                 var ip = IPAddress.Parse(info.GetAddress());
                 var endPoint = new IPEndPoint(ip, info.GetPort());
                 socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                socket.NoDelay = true;
                 socket.Connect(endPoint);
                 cachedConnections.Value.Add(recipient, socket);
 
@@ -378,6 +379,7 @@ namespace FASTER.serverless
                 new ServerConnectionState<Key, Value, Input, Output, Functions>(e.AcceptSocket, worker, threadPool);
             receiveEventArgs.Completed += ServerConnectionState<Key, Value, Input, Output, Functions>.RecvEventArg_Completed;
 
+            e.AcceptSocket.NoDelay = true;
             // If the client already have packets, avoid handling it here on the handler so we don't block future accepts.
             if (!e.AcceptSocket.ReceiveAsync(receiveEventArgs))
                 Task.Run(() => ServerConnectionState<Key, Value, Input, Output, Functions>.RecvEventArg_Completed(null, receiveEventArgs));

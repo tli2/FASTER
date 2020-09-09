@@ -143,6 +143,8 @@ namespace FASTER.serverless
         {
             try
             {
+                if (AttachedWorker.CurrentVersion() < AttachedWorker.inProgressBump)
+                    AttachedWorker.localFaster._fasterKV.BumpVersion(out _, AttachedWorker.inProgressBump, out _);
                 // Refresh will throw an exception if the worker has rolled back due to a failure. Although the
                 // worker could have already found out about the failure from a remote worker, we choose to use
                 // this local refresh as the spring-off point for error handling always. This means that a worker

@@ -101,6 +101,8 @@ namespace FASTER.serverless
                 session.UnsafeSuspendThread();
                 Thread.Yield();
                 session.UnsafeResumeThread();
+                if (CurrentVersion() < inProgressBump)
+                    localFaster._fasterKV.BumpVersion(out _, inProgressBump, out _);
             } while (session.Version() < targetVersion);
         }
         
