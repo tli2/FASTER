@@ -2,7 +2,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
-using System.Net;
+ using System.Linq;
+ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -102,7 +103,7 @@ namespace FASTER.benchmark
                     fasterServerless.localFaster._fasterKV.BumpVersion(out _, fasterServerless.inProgressBump, out _);
             }
             if (fasterServerless.checkpointLatencies.Count != 0)
-                Console.WriteLine($"server performed {fasterServerless.checkpointLatencies.Count} checkpoints, average duration {fasterServerless.checkpointLatencies.Count} ms");
+                Console.WriteLine($"server performed {fasterServerless.checkpointLatencies.Count} checkpoints, average duration {fasterServerless.checkpointLatencies.Average()} ms");
         }
 
         private void Setup(BenchmarkConfiguration configuration)

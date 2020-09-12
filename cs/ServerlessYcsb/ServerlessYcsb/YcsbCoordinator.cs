@@ -45,7 +45,7 @@ namespace FASTER.benchmark
                 sender.Close();
             }
 
-            Thread.Sleep(5000);
+            Thread.Sleep(10000);
             
             var conn = new SqlConnection(benchmarkConfig.connString);
             conn.Open();

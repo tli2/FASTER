@@ -278,7 +278,7 @@ namespace FASTER.core
                     CopyContext(fromCtx, toCtx);
                     if (toCtx.serialNum != -1)
                     {
-                        tokens.TryAdd(toCtx.guid,
+                        tokens?.TryAdd(toCtx.guid,
                             new CommitPoint
                             {
                                 UntilSerialNo = toCtx.serialNum,

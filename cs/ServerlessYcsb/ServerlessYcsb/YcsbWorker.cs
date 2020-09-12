@@ -139,7 +139,7 @@ namespace FASTER.benchmark
             messageManager = new ServerfulMessageManager(me, YcsbCoordinator.clusterConfig.GetRoutingTable());
             var metadataStore =
                 new MetadataStore(new AzureSqlOwnershipMapping(configuration.connString), messageManager);
-            var dprManager = new AzureSqlDprManagerV1(configuration.connString, me);
+            var dprManager = new AzureSqlDprManagerV2(configuration.connString, me);
             device = Devices.CreateLogDevice("D:\\hlog", deleteOnClose: true, preallocateFile:true);
             fasterServerless = new FasterServerless<Key, Value, Input, Output, Functions>(
                 metadataStore, messageManager, dprManager, BenchmarkConsts.kMaxKey / 2, new Functions(),
@@ -167,7 +167,7 @@ namespace FASTER.benchmark
                 input_[i].value = i;
 
             PrintToCoordinator("Starting Server", coordinatorConn);
-            threadPool.Start(configuration.execThreadCount, fasterServerless);
+            threadPool.Start(2, fasterServerless);
             messageManager.StartServer(fasterServerless, threadPool);
             
             PrintToCoordinator("Executing setup.", coordinatorConn);
@@ -176,6 +176,11 @@ namespace FASTER.benchmark
             sw.Start();
             Setup(me, configuration, coordinatorConn);
             sw.Stop();
+            if (configuration.execThreadCount < 16)
+            {
+                long affinityMask = (1 << (configuration.execThreadCount + 1)) - 1;
+                Process.GetCurrentProcess().ProcessorAffinity = (IntPtr) affinityMask;
+            }
             var logStartAddress = fasterServerless.localFaster.Log.TailAddress;
             PrintToCoordinator($"Loading time: {sw.ElapsedMilliseconds}ms", coordinatorConn);
             coordinatorConn.SendBenchmarkControlMessage("setup finished");

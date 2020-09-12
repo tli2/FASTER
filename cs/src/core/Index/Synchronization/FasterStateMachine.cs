@@ -175,57 +175,40 @@ namespace FASTER.core
             var currentState = ctx == null ? targetState : SystemState.Make(ctx.phase, ctx.version);
             var targetStartState = StartOfCurrentCycle(targetState);
 
-            // #region Get returning thread to start of current cycle, issuing completion callbacks if needed
-            // if (ctx != null)
-            // {
-            //     if (ctx.version < targetStartState.version)
-            //     {
-            //         // Issue CPR callback for full session
-            //         if (ctx.serialNum != -1)
-            //         {
-            //             List<long> excludedSerialNos = new List<long>();
-            //             foreach (var v in ctx.ioPendingRequests.Values)
-            //             {
-            //                 excludedSerialNos.Add(v.serialNum);
-            //             }
-            //             foreach (var v in ctx.retryRequests)
-            //             {
-            //                 excludedSerialNos.Add(v.serialNum);
-            //             }
-            //
-            //             var commitPoint = new CommitPoint
-            //             {
-            //                 UntilSerialNo = ctx.serialNum,
-            //                 ExcludedSerialNos = excludedSerialNos
-            //             };
-            //
-            //             // Thread local action
-            //             fasterSession?.CheckpointCompletionCallback(ctx.guid, commitPoint);
-            //         }
-            //     }
-            //     if ((ctx.version == targetStartState.version) && (ctx.phase < Phase.REST))
-            //     {
-            //         // Ensure atomic switch took place. Would not have happened
-            //         // for index-only checkpoints.
-            //         if (ctx.prevCtx.excludedSerialNos != null)
-            //         {
-            //             // Issue CPR callback on old version (prevCtx)
-            //             if (ctx.prevCtx.serialNum != -1)
-            //             {
-            //                 var commitPoint = new CommitPoint
-            //                 {
-            //                     UntilSerialNo = ctx.prevCtx.serialNum,
-            //                     ExcludedSerialNos = ctx.prevCtx.excludedSerialNos
-            //                 };
-            //
-            //                 // Thread local action
-            //                 fasterSession?.CheckpointCompletionCallback(ctx.guid, commitPoint);
-            //                 ctx.prevCtx.excludedSerialNos = null;
-            //             }
-            //         }
-            //     }
-            // }
-            // #endregion 
+            #region Get returning thread to start of current cycle, issuing completion callbacks if needed
+            if (ctx != null)
+            {
+                if (ctx.version < targetStartState.version)
+                {
+                    // Issue CPR callback for full session
+                    if (ctx.serialNum != -1)
+                    {
+                        List<long> excludedSerialNos = new List<long>();
+                        foreach (var v in ctx.ioPendingRequests.Values)
+                        {
+                            excludedSerialNos.Add(v.serialNum);
+                        }
+                        foreach (var v in ctx.retryRequests)
+                        {
+                            excludedSerialNos.Add(v.serialNum);
+                        }
+            
+                        var commitPoint = new CommitPoint
+                        {
+                            UntilSerialNo = ctx.serialNum,
+                            ExcludedSerialNos = excludedSerialNos
+                        };
+            
+                        // Thread local action
+                        fasterSession?.CheckpointCompletionCallback(ctx.guid, commitPoint);
+                    }
+                }
+                if ((ctx.version == targetStartState.version) && (ctx.phase < Phase.REST))
+                {
+                    IssueCompletionCallback(ctx, fasterSession);
+                }
+            }
+            #endregion 
 
             // No state machine associated with target, or target is in REST phase:
             // we can directly fast forward session to target state
@@ -278,6 +261,30 @@ namespace FASTER.core
             #endregion
 
             return;
+        }
+        
+        internal void IssueCompletionCallback<Input, Output, Context, FasterSession>(FasterExecutionContext<Input, Output, Context> ctx, FasterSession fasterSession)
+            where FasterSession : IFasterSession
+        {
+            CommitPoint commitPoint = default;
+            if (ctx.prevCtx.excludedSerialNos != null)
+            {
+                lock (ctx.prevCtx)
+                {
+                    if (ctx.prevCtx.serialNum != -1)
+                    {
+                        commitPoint = new CommitPoint
+                        {
+                            UntilSerialNo = ctx.prevCtx.serialNum,
+                            ExcludedSerialNos = ctx.prevCtx.excludedSerialNos
+                        };
+                        ctx.prevCtx.excludedSerialNos = null;
+                    }
+                }
+                if (commitPoint.ExcludedSerialNos != null)
+                    fasterSession?.CheckpointCompletionCallback(ctx.guid, commitPoint);
+            }
+
         }
     }
 }

@@ -110,7 +110,7 @@ namespace FASTER.core
                         var _ctx = prev.phase == Phase.ROLLBACK_THROW ? ctx.prevCtx : ctx;
 
                         var tokens = faster._hybridLogCheckpoint.info.checkpointTokens;
-                        if (!faster.SameCycle(current) || tokens == null)
+                        if (!faster.SameCycle(current))
                             return;
                         if (!_ctx.markers[EpochPhaseIdx.RollbackInProg])
                         {
