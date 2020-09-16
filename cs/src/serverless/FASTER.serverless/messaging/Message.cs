@@ -260,7 +260,6 @@ namespace FASTER.serverless
         {
             header = request.header;
             header.type = FasterServerlessMessageType.ReadResult;
-            header.worldLine = newWorldLine;
             header.ret = FasterServerlessReturnCode.WorldLineShift;
         }
 
@@ -286,7 +285,6 @@ namespace FASTER.serverless
         {
             header = request.header;
             header.type = FasterServerlessMessageType.RequestComplete;
-            header.worldLine = newWorldLine;
             header.ret = FasterServerlessReturnCode.WorldLineShift;
         }
 

@@ -14,10 +14,10 @@ namespace FASTER.benchmark
         public int averageMilli, delayMilli;
         public string connString;
         public int runSeconds;
-        
+
         public override string ToString()
         {
-            return $"number of workers: {workers.Count}, {nameof(dprType)}: {dprType}, {nameof(depProb)}: {depProb}, {nameof(heavyHitterProb)}: {heavyHitterProb}, {nameof(delayProb)}: {delayProb}, {nameof(averageMilli)}: {averageMilli}";
+            return $"worker num:{workers.Count}, {nameof(dprType)}: {dprType}, {nameof(depProb)}: {depProb}, {nameof(heavyHitterProb)}: {heavyHitterProb}, {nameof(delayProb)}: {delayProb}, {nameof(averageMilli)}: {averageMilli}, {nameof(delayMilli)}: {delayMilli}, {nameof(runSeconds)}: {runSeconds}";
         }
     }
 }

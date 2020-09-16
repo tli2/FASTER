@@ -1,4 +1,4 @@
-﻿﻿using System;
+﻿using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -78,10 +78,8 @@ namespace FASTER.serverless
                     // Operation paused because of a remote worker has seen a failure this client session has not
                     // This must be the first occurrence, because otherwise as part of a local rollback the pending
                     // operation would be removed from the queue
-                    Debug.Assert(sessionWorldLine < reply.header.worldLine);
-                    // Eventually refresh will handle the failure and throw an exception to break out of this loop.
-                    while (true)
-                        Refresh();
+                    Debug.Assert(sessionWorldLine == reply.header.worldLine);
+                    return true;
                 default:
                     return false;
             }
@@ -171,20 +169,23 @@ namespace FASTER.serverless
                     {
                         var index = currentPendingOps.Peek();
                         var pendingContext = reusablePendingContexts[index];
-                        // if we are not supposed to spin wait, exit immediately if unable to make progress. Need to do
-                        // this to preserve order in the queue so we can use a fast circular buffer for reusable contexts.
-                        if (!pendingContext.completion.Wait(TimeSpan.Zero))
+                        lock (pendingContext)
                         {
-                            localSession.UnsafeSuspendThread();
-                            var acquired = pendingContext.completion.Wait(waitTimeout);
-
-                            localSession.UnsafeResumeThread();
-
-
-                            if (!acquired)
+                            // if we are not supposed to spin wait, exit immediately if unable to make progress. Need to do
+                            // this to preserve order in the queue so we can use a fast circular buffer for reusable contexts.
+                            if (!pendingContext.completion.Wait(TimeSpan.Zero))
                             {
-                                result = false;
-                                break;
+                                localSession.UnsafeSuspendThread();
+                                var acquired = pendingContext.completion.Wait(waitTimeout);
+
+                                localSession.UnsafeResumeThread();
+
+
+                                if (!acquired)
+                                {
+                                    result = false;
+                                    break;
+                                }
                             }
                         }
 
@@ -258,18 +259,20 @@ namespace FASTER.serverless
                 var first = true;
                 while (batch.NextMessage(ref m, AttachedWorker.serializer))
                 {
-                    Debug.Assert(m.header.type == FasterServerlessMessageType.ReadResult ||
-                                 m.header.type == FasterServerlessMessageType.RequestComplete);
-                    // Otherwise, cannot rely on the pending operation still being reserved for this operation.
-                    if (m.header.worldLine != AttachedWorker.workerWorldLine) continue;
                     if (m.header.type == FasterServerlessMessageType.RecoveryResult)
                     {
                         recoveryResults.TryAdd(m.header.writeLocation, m);
                         recoveryProgress[m.header.writeLocation].Set();
+                        continue;
                     }
-                    else
+
+                    // Otherwise, cannot rely on the pending operation still being reserved for this operation.
+                    // if (m.header.worldLine != sessionWorldLine) continue;
+
+                    ref var ctx = ref reusablePendingContexts[m.header.writeLocation];
+                    lock (ctx)
                     {
-                        ref var ctx = ref reusablePendingContexts[m.header.writeLocation];
+                        if (ctx.op.header.serialNum != m.header.serialNum) continue;
                         Debug.Assert(ctx.op.header.serialNum == m.header.serialNum);
                         ctx.result = m;
                         // If the first reply in a reply batch, also write down the list of dependencies
@@ -283,9 +286,10 @@ namespace FASTER.serverless
                         }
 
                         ctx.completion.Set();
-                        if (latencyMeasurements)
-                            opEndTick[m.header.serialNum] = stopwatch.ElapsedTicks;
                     }
+
+                    if (latencyMeasurements)
+                        opEndTick[m.header.serialNum] = stopwatch.ElapsedTicks;
                 }
             }
         }

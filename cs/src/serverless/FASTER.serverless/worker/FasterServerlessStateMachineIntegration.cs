@@ -1,4 +1,5 @@
-﻿﻿using System.Collections.Generic;
+﻿﻿using System;
+ using System.Collections.Generic;
  using System.Diagnostics;
  using System.Threading;
 using System.Threading.Tasks;
@@ -78,10 +79,10 @@ namespace FASTER.serverless
             switch (next.phase)
             {
                 case Phase.PREPARE:
-                    stopwatch.Restart();
                     break;
                 case Phase.IN_PROGRESS:
                 case Phase.ROLLBACK_THROW:
+                    stopwatch.Restart();
                     worker.stableLocalVersion = worker.liveLocalVersion;
                     var newVersion = new OutstandingLocalVersion(next.version, faster.Log.TailAddress);
                     // Atomically update the live version to be the new version. Any readers after this point will
@@ -98,6 +99,13 @@ namespace FASTER.serverless
                     stopwatch.Stop();
                     worker.checkpointLatencies.Add(stopwatch.ElapsedMilliseconds);
                     worker.toReport.Enqueue(worker.stableLocalVersion);
+                    break;
+                case Phase.REST:
+                    if (stopwatch.IsRunning)
+                    {
+                        stopwatch.Stop();
+                        Console.WriteLine($"Rollback completed in {stopwatch.ElapsedMilliseconds} ms");
+                    }
                     break;
             }
         }
@@ -145,7 +153,8 @@ namespace FASTER.serverless
             if (next.phase != Phase.ROLLBACK_THROW) return;
             // Guaranteed to be single-threaded by state machine semantics.
             worker.workerWorldLine++;
-            worker.DprManager.ReportRecovery(worker.workerWorldLine, new WorkerVersion(worker.MessageManager.Me(), worker.DprManager.SafeVersion(worker.Me())));
+            if (!worker.clientOnly)
+                worker.toReport.Enqueue(new OutstandingLocalVersion(-1, 0));
         }
 
         public void GlobalAfterEnteringState<Key, Value>(

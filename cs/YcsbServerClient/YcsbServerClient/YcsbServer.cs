@@ -5,7 +5,8 @@ using System.IO;
  using System.Linq;
  using System.Net;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
+ using System.Reflection.PortableExecutable;
+ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using FASTER.core;
@@ -157,12 +158,12 @@ namespace FASTER.benchmark
             messageManager = new ServerfulMessageManager(me, YcsbCoordinator.clusterConfig.GetRoutingTable());
             var metadataStore =
                 new MetadataStore(new AzureSqlOwnershipMapping(configuration.connString), messageManager);
-            var dprManager = new AzureSqlDprManagerV2(configuration.connString, me);
-            device = Devices.CreateLogDevice("D:\\hlog", true, true);
+            var dprManager = new AzureSqlDprManagerV1(configuration.connString, me);
+            device = Devices.CreateLogDevice("E:\\hlog", true, true);
             fasterServerless = new FasterServerless<Key, Value, Input, Output, Functions>(
                 metadataStore, messageManager, dprManager, BenchmarkConsts.kMaxKey / 2, new Functions(),
                 new LogSettings {LogDevice = device, PreallocateLog = true},
-                checkpointSettings: new CheckpointSettings {CheckpointDir = "D:\\checkpoints"}, 
+                checkpointSettings: new CheckpointSettings {CheckpointDir = "E:\\checkpoints"}, 
                 bucketingScheme: new YcsbBucketingScheme(),
                 serializer: new YcsbParameterSerializer());
             threadPool = new FasterServerlessBackgroundThreadPool<Key, Value, Input, Output, Functions>();

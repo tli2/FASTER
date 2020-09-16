@@ -252,9 +252,13 @@ namespace FASTER.serverless
             // represents the request, to be either executed remotely or stored for later execution.
             var index = GetFreeContext();
             var pendingContext = reusablePendingContexts[index];
-            pendingContext.Reinitialize(bucket, readResult);
-            pendingContext.op.InitializeUpsertRequest(opSerialNum, GetVersionNum(), sessionWorldLine, index, key, input);
-            HandlePendingOperation(index, pendingContext, isLocalKey);
+            lock (pendingContext)
+            {
+                pendingContext.Reinitialize(bucket, readResult);
+                pendingContext.op.InitializeUpsertRequest(opSerialNum, GetVersionNum(), sessionWorldLine, index, key,
+                    input);
+                HandlePendingOperation(index, pendingContext, isLocalKey);
+            }
 
             return Status.PENDING;
         }
@@ -280,10 +284,13 @@ namespace FASTER.serverless
 
             var index = GetFreeContext();
             var pendingContext = reusablePendingContexts[index];
-            pendingContext.Reinitialize(bucket);
-            pendingContext.op.InitializeUpsertRequest(opSerialNum, GetVersionNum(), sessionWorldLine, index, key, desiredValue);
-            HandlePendingOperation(index, pendingContext, isLocalKey);
-            
+            lock (pendingContext)
+            {
+                pendingContext.Reinitialize(bucket);
+                pendingContext.op.InitializeUpsertRequest(opSerialNum, GetVersionNum(), sessionWorldLine, index, key,
+                    desiredValue);
+                HandlePendingOperation(index, pendingContext, isLocalKey);
+            }
             return Status.PENDING;
         }
 

@@ -374,9 +374,6 @@ namespace FASTER.core
                 
                 ThreadStateMachineStep<Empty, Empty, Empty, NullFasterSession>(null, NullFasterSession.Instance, valueTasks, token);
 
-                if (valueTasks.Count == 0)
-                    break;
-
                 foreach (var task in valueTasks)
                 {
                     if (!task.IsCompleted)

@@ -188,6 +188,7 @@ namespace FASTER.core
     {
         private void RollbackRecordsOnDisk(long start, long end, long startVersion, long endVersion, CountdownEvent countdown = null)
         {
+            Console.WriteLine($"Rolling back disk record {start} - {end}");
             var iterator = new FasterLogMetadataIterator<Key, Value>(hlog, start, end);
             for (; iterator.HasNext(); iterator.Next())
             {
@@ -227,6 +228,9 @@ namespace FASTER.core
 
         internal void RollbackLogVersions(long startAddress, long untilAddress, long startVersion, long endVersion)
         {
+            Console.WriteLine($"Rolling back address range {startAddress} - {untilAddress}, from version {endVersion} => {startVersion}");
+            var sw = new Stopwatch();
+            sw.Start();
             var diskWriteComplete = new CountdownEvent(1);
             // TODO(Tianyu): If the rolled-back section is large, should be a better idea to bump epoch a couple
             // of times during operation.
@@ -247,7 +251,7 @@ namespace FASTER.core
             
             // Need to change all records in memory in case they are still around after the rollback. This has no
             // impact on correctness though even if it coincides with the write
-            for (var page = hlog.GetPage(inMemoryPageStart); page < endPage; page++)
+            for (var page = Math.Max(startPage, hlog.GetPage(inMemoryPageStart)); page < endPage; page++)
             {
                 var startLogicalAddress = hlog.GetStartLogicalAddress(page);
                 var endLogicalAddress = hlog.GetStartLogicalAddress(page + 1);
@@ -265,15 +269,18 @@ namespace FASTER.core
             }
 
             epoch.Suspend();
-
-            // Wait until the system flushes the pages between previous persisted boundary and previous readonly boundary
-            while (hlog.FlushedUntilAddress < mutablePageStart ||
-                   hlog.SafeHeadAddress < inMemoryPageStart)
-                Thread.Yield();
-            // Rollback the previous fuzzy region once the content is on disk
+            
+            // // Rollback the previous fuzzy region once the content is on disk
             if (outstandingPageStart < mutablePageStart)
+            {
+                // Wait until the system flushes the pages between previous persisted boundary and previous readonly boundary
+                while (hlog.FlushedUntilAddress < mutablePageStart)
+                    Thread.Yield();
                 RollbackRecordsOnDisk(outstandingPageStart, mutablePageStart, startVersion, endVersion);
+            }
             diskWriteComplete.Wait();
+            sw.Stop();
+            Console.WriteLine($"Rollback code took {sw.ElapsedMilliseconds} ms");
         }
     }
 }

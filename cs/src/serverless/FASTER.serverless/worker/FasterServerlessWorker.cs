@@ -30,8 +30,17 @@ namespace FASTER.serverless
             {
                 while (toReport.TryDequeue(out var local))
                 {
-                    DprManager.ReportNewPersistentVersion(new WorkerVersion(MessageManager.Me(), local.Version()),
-                        local.GetDependenciesSlow());
+                    if (local.Version() == -1)
+                    {
+                        DprManager.ReportRecovery(workerWorldLine, new WorkerVersion(
+                           MessageManager.Me(),
+                           DprManager.SafeVersion(Me())));
+                    }
+                    else
+                    {
+                        DprManager.ReportNewPersistentVersion(new WorkerVersion(MessageManager.Me(), local.Version()),
+                            local.GetDependenciesSlow());
+                    }
                 }
             }
 
@@ -92,18 +101,24 @@ namespace FASTER.serverless
         {
             if (clientOnly) throw new Exception("unsupported operation");
 
-            // Try bump again in case the caller didn't. Can't hurt.
-            if (TryBumpToVersion(targetVersion, session, maxRetry)) return;
-            do
+            try
             {
-                // Need to periodically refresh and check for version, in case the task blocking is the
-                // only thread alive and refreshing in the system.
-                session.UnsafeSuspendThread();
-                Thread.Yield();
-                session.UnsafeResumeThread();
-                if (CurrentVersion() < inProgressBump)
-                    localFaster._fasterKV.BumpVersion(out _, inProgressBump, out _);
-            } while (session.Version() < targetVersion);
+                // Try bump again in case the caller didn't. Can't hurt.
+                if (TryBumpToVersion(targetVersion, session, maxRetry)) return;
+                do
+                {
+                    // Need to periodically refresh and check for version, in case the task blocking is the
+                    // only thread alive and refreshing in the system.
+                    session.UnsafeSuspendThread();
+                    Thread.Yield();
+                    session.UnsafeResumeThread();
+                    if (CurrentVersion() < inProgressBump)
+                        localFaster._fasterKV.BumpVersion(out _, inProgressBump, out _);
+                } while (session.Version() < targetVersion);
+            }
+            catch (FasterRollbackException)
+            {
+            }
         }
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -121,31 +136,30 @@ namespace FASTER.serverless
         // TODO(Tianyu) For now, the worker always rolls back to the guaranteed version, which is overly conservative. 
         public void Rollback(long targetWorldLine)
         {
-            // World-line shifting happens sequentially
-            // TODO(Tianyu): In this simplistic implementation, we don't need this guarantee
-            // Rollbacks are idempotent because we aggressively revert to the DPR guarantee, and we temporarily
-            // pause the computation for new guarantees when workers are in the process of recovery.
-            while (workerWorldLine != targetWorldLine - 1)
-                Thread.Sleep(10);
-            
-            var targetVersion = DprManager.SafeVersion(MessageManager.Me());
-            var targetVersionObject = outstandingVersions.FirstOrDefault(outstandingVersion => outstandingVersion.Version() == targetVersion);
             long offset = -1;
             var progress = new ConcurrentDictionary<string, CommitPoint>();
-            if (targetVersionObject != default)
+            long targetVersion = 0;
+            if (!clientOnly)
             {
-                offset = targetVersionObject.FuzzyVersionStartLogOffset();
-                progress = targetVersionObject.checkpointSessionProgress;
+                targetVersion = DprManager.SafeVersion(MessageManager.Me());
+                var targetVersionObject = outstandingVersions.FirstOrDefault(outstandingVersion =>
+                    outstandingVersion.Version() == targetVersion);
+
+                if (targetVersionObject != default)
+                {
+                    offset = targetVersionObject.FuzzyVersionStartLogOffset();
+                    progress = targetVersionObject.checkpointSessionProgress;
+                }
             }
-            
+
             TaskCompletionSource<object> tcs;
             while (!localFaster._fasterKV.Rollback(targetVersion, offset, progress, out tcs))
             {
                 // Wait for previous state machine to complete
-                localFaster.CompleteCheckpointAsync().AsTask().Wait();
+                AsyncContext.Run(async () => await localFaster.CompleteCheckpointAsync());
             }
 
-            localFaster.CompleteCheckpointAsync().AsTask().Wait();
+            AsyncContext.Run(async () => await localFaster.CompleteCheckpointAsync());
             // No need to clear local queue of outstanding operations, as that will be cleared in the next commit
         }
 

@@ -75,7 +75,7 @@ namespace FASTER.benchmark
                 new ServerfulMessageManager(me, YcsbCoordinator.clusterConfig.GetRoutingTable());
             var metadataStore =
                 new MetadataStore(new AzureSqlOwnershipMapping(configuration.connString), messageManager);
-            var dprManager = new AzureSqlDprManagerV2(configuration.connString, me, false);
+            var dprManager = new AzureSqlDprManagerV1(configuration.connString, me, false);
             device = Devices.CreateLogDevice("D:\\hlog", deleteOnClose: true);
             fasterServerless = new FasterServerless<Key, Value, Input, Output, Functions>(
                 metadataStore, messageManager, dprManager, 1, new Functions(),
@@ -175,7 +175,9 @@ namespace FASTER.benchmark
                                         throw new InvalidOperationException("Unexpected op: " + op);
                                 }
                             }
-                            catch (FasterServerlessRollbackException) {}
+                            catch (FasterServerlessRollbackException)
+                            {
+                            }
                         }
                     }
 
@@ -221,20 +223,25 @@ namespace FASTER.benchmark
                 if (BenchmarkConsts.kTriggerRecovery)
                 {
                     using var uncommittedFile = new StreamWriter($"Z:\\uncommit{workerId}.txt");
+                    using var opStartFile = new StreamWriter($"Z:\\start{workerId}.txt");
                     var uncommitted = new long[120];
                     var commits = new long[120];
                     var ops = new long[120];
+                    var opStarts = new long[120];
                     foreach (var s in localSessions)
                     {
                         for (var i = 0; i < s.NextSerialNum(); i++)
                         {
+                            var startTimeBracket = 1000 * s.opStartTick[i] / Stopwatch.Frequency / 250;
+
+                            if (startTimeBracket < 120)
+                                opStarts[startTimeBracket]++;
                             var endTimeBracket = 1000 * s.opEndTick[i] / Stopwatch.Frequency / 250;
                             if (endTimeBracket < 120)
                                 ops[endTimeBracket]++;
                             var commitTimeBracket = 1000 * s.opCommitTick[i] / Stopwatch.Frequency / 250;
                             if (s.opCommitTick[i] == 0)
                             {
-                                var startTimeBracket = 1000 * s.opStartTick[i] / Stopwatch.Frequency / 250;
                                 if (startTimeBracket < 120)
                                     uncommitted[startTimeBracket]++;
                             }
@@ -251,6 +258,7 @@ namespace FASTER.benchmark
                         opFile.WriteLine(ops[i]);
                         commitFile.WriteLine(commits[i]);
                         uncommittedFile.WriteLine(uncommitted[i]);
+                        opStartFile.WriteLine(opStarts[i]);
                     }
                 }
                 else

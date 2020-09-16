@@ -16,49 +16,47 @@ namespace FASTER.serverless
 
         public CommitPoint GetSessionRecoveryProgress(Guid sessionId, long worldLine)
         {
-            WaitUntilWorldLine(worldLine);
+            
             // At this point the world line could be ahead of what the requested world-line is, but in that case.
             // said worker will eventually need to come ask us again, and it doesn't matter what answer we give now.
             if (cachedLocalSessions.TryGetValue(sessionId, out var localSession))
             {
+                try
+                {
+                    while (workerWorldLine < worldLine)
+                    {
+                        localSession.Item1.Refresh();
+                    }
+                
+                    localSession.Item1.Refresh();
+                } catch (FasterRollbackException) {}
+
                 // In this case the session's progress is stored in its commit point. It suffices to read that out.
                 var result = localSession.Item1.CommitPoint();
                 return result;
             }
 
+            throw new NotImplementedException();
             // Otherwise, maybe this worker crashed and we need to resume process from a checkpoint
-            try
-            {
-                var recoveredSession = localFaster.ResumeSession(sessionId.ToString(), out var commitPoint, true);
-                // Immediately suspend thread because it comes back affinitized, and we will not be operating on the
-                // session here.
-                recoveredSession.UnsafeSuspendThread();
-                cachedLocalSessions.TryAdd(sessionId, ValueTuple.Create(recoveredSession, new SemaphoreSlim(1, 1)));
-                return commitPoint;
-            }
-            catch (FasterException)
-            {
-                // An exception is thrown here if there are no corresponding recovered version, which could be because
-                // the request message got lost. Simply return a trivial commit point suffices.
-                return new CommitPoint();
-            }
+            // try
+            // {
+            //     var recoveredSession = localFaster.ResumeSession(sessionId.ToString(), out var commitPoint, true);
+            //     // Immediately suspend thread because it comes back affinitized, and we will not be operating on the
+            //     // session here.
+            //     recoveredSession.UnsafeSuspendThread();
+            //     cachedLocalSessions.TryAdd(sessionId, ValueTuple.Create(recoveredSession, new SemaphoreSlim(1, 1)));
+            //     return commitPoint;
+            // }
+            // catch (FasterException)
+            // {
+            //     // An exception is thrown here if there are no corresponding recovered version, which could be because
+            //     // the request message got lost. Simply return a trivial commit point suffices.
+            //     return new CommitPoint();
+            // }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal Worker Me() => MessageManager.Me();
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool CheckWorldLineCompatible(long target) => workerWorldLine >= target;
-
-        // Hold off reporting recovery progress until the worker has recovered. Ok to block as no meaningful
-        // progress can be made in the worker due to pending rollback 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WaitUntilWorldLine(long target)
-        {
-            // TODO(Tianyu): Ok to sleep on rare occasions
-            while (!CheckWorldLineCompatible(target))
-                Thread.Sleep(5);
-        }
 
         internal unsafe void ProcessBatch(byte[] buf, int offset,
             Socket socket,
@@ -79,16 +77,18 @@ namespace FASTER.serverless
                     var replies = messagePool.Checkout();
                     replies.obj.ReinitializeForReply(ref batch);
 
+                    var worldLine = workerWorldLine;
                     try
                     {
                         localSession.UnsafeResumeThread();
                     }
                     catch (FasterRollbackException) {}
+
                     
                     while (batch.NextMessage(ref m, serializer))
                     {
                         firstRead = true;
-                        if (!TryHandleMessage(ref batch, ref m, replies.obj, localSession, processed == 0))
+                        if (!TryHandleMessage(ref batch, ref m, replies.obj, localSession, processed == 0, worldLine))
                         {
                             break;
                         }
@@ -98,6 +98,7 @@ namespace FASTER.serverless
                         {
                             try
                             {
+                                worldLine = workerWorldLine;
                                 localSession.Refresh();
                             }
                             catch (FasterRollbackException) {}
@@ -105,6 +106,11 @@ namespace FASTER.serverless
                                 localFaster._fasterKV.BumpVersion(out _, inProgressBump, out _);
                         }
                     }
+
+                    try
+                    {
+                        localSession.CompletePending(true);
+                    } catch (FasterRollbackException) {}
 
                     // We have processed all requests that we can, can send replies now
                     localSession.UnsafeSuspendThread();
@@ -137,7 +143,7 @@ namespace FASTER.serverless
             ref Message<Key, Value, Input, Output> m,
             ParsedMessageBatch<Key, Value, Input, Output> replies,
             ClientSession<Key, Value, Input, Output, Empty, Functions> localSession,
-            bool addDeps)
+            bool addDeps, long worldLineView)
         {
             switch (m.header.type)
             {
@@ -145,10 +151,11 @@ namespace FASTER.serverless
                 case FasterServerlessMessageType.UpsertRequest:
                 case FasterServerlessMessageType.RmwRequest:
                 case FasterServerlessMessageType.DeleteRequest:
-                    return TryExecutePeerRequest(ref batch, ref m, ref replies, localSession, addDeps);
+                    return TryExecutePeerRequest(ref batch, ref m, ref replies, localSession, addDeps, worldLineView);
                 case FasterServerlessMessageType.RecoveryStatusCheck:
-                    // Always queue a recovery status check
-                    return false;
+                    var recoveredCommitPoint = GetSessionRecoveryProgress(batch.header.sessionId, m.header.worldLine);
+                    replies.AddMessage().ReplyRecoveryResult(ref m, recoveredCommitPoint);
+                    return true;
                 // TODO(Tianyu): Add ownership transfer functionality back in at some point
                 // case FasterServerlessMessageType.OwnershipDropped:
                 //     var droppedMessage = (FasterServerlessOwnershipDroppedMessage) message;
@@ -165,16 +172,16 @@ namespace FASTER.serverless
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool CheckWorkerFailure(ref BatchHeader batch, ref Message<Key, Value, Input, Output> m,
-            ParsedMessageBatch<Key, Value, Input, Output> replies)
+            ParsedMessageBatch<Key, Value, Input, Output> replies, long worldLineView)
         {
-            if (m.header.worldLine >= workerWorldLine || cachedLocalSessions.ContainsKey(batch.sessionId))
+            if (m.header.worldLine == worldLineView)
                 return false;
 
             ref var reply = ref replies.AddMessage();
             if (m.header.type == FasterServerlessMessageType.ReadRequest)
-                reply.ReplyReadFailureWorldLine(ref m, workerWorldLine);
+                reply.ReplyReadFailureWorldLine(ref m, worldLineView);
             else
-                reply.ReplyWriteFailureWorldLine(ref m, workerWorldLine);
+                reply.ReplyWriteFailureWorldLine(ref m, worldLineView);
             return true;
         }
 
@@ -204,15 +211,8 @@ namespace FASTER.serverless
                     var status = localSession.Read(ref m.key,
                         ref m.input, ref reply.output, Empty.Default,
                         m.header.serialNum);
-                    // TODO(Tianyu): For now because of the situation with thread-affinity we are forced to wait blockingly
-                    // on an async thread, which is atrocious. Not much else we can do though, because the async/non-async codepath
-                    // is essentially bipartite on the client session API, and we need fine-grained control over
-                    // refreshes for the dependency set maintenance.
                     if (status == Status.PENDING)
-                    {
-                        localSession.CompletePending(true);
-                        status = Status.OK;
-                    }
+                        throw new NotImplementedException();
 
                     reply.ReplyReadSuccess(ref m, localSession.Version(), status);
                     break;
@@ -222,10 +222,8 @@ namespace FASTER.serverless
                     var status = localSession.Upsert(ref m.key,
                         ref m.value, Empty.Default, m.header.serialNum);
                     if (status == Status.PENDING)
-                    {
-                        localSession.CompletePending(true);
+                        // We will blockingly clear pending later
                         status = Status.OK;
-                    }
 
                     reply.ReplyWriteSuccess(ref m, localSession.Version(), status);
                     break;
@@ -236,10 +234,7 @@ namespace FASTER.serverless
                         ref m.input, Empty.Default,
                         m.header.serialNum);
                     if (status == Status.PENDING)
-                    {
-                        localSession.CompletePending(true);
-                        status = Status.OK;
-                    }
+                        throw new NotImplementedException();
 
                     reply.ReplyWriteSuccess(ref m, localSession.Version(), status);
                     break;
@@ -249,10 +244,7 @@ namespace FASTER.serverless
                     var status = localSession.Delete(ref m.key, Empty.Default,
                         m.header.serialNum);
                     if (status == Status.PENDING)
-                    {
-                        localSession.CompletePending(true);
-                        status = Status.OK;
-                    }
+                        throw new NotImplementedException();
 
                     reply.ReplyWriteSuccess(ref m, localSession.Version(), status);
                     break;
@@ -266,14 +258,14 @@ namespace FASTER.serverless
             ref Message<Key, Value, Input, Output> m,
             ref ParsedMessageBatch<Key, Value, Input, Output> replies,
             ClientSession<Key, Value, Input, Output, Empty, Functions> localSession,
-            bool addDeps)
+            bool addDeps, long worldLineView)
         {
             // If the worker is behind on world line, sit on this request until the worker recovers.
-            if (!CheckWorldLineCompatible(m.header.worldLine)) return false;
+            if (worldLineView < m.header.worldLine) return false;
             // Now, if the worker world line is ahead of the client request, the client needs to be notified
             // of a failure the did not observe. Only need to do this when there is no local session on this worker
             // yet, otherwise we can rely on the exception from FASTER itself to achieve this.
-            if (CheckWorkerFailure(ref batch.header, ref m, replies)) return true;
+            if (CheckWorkerFailure(ref batch.header, ref m, replies, worldLineView)) return true;
 
             var bucket = BucketingScheme.GetBucket(m.key);
 
@@ -284,7 +276,7 @@ namespace FASTER.serverless
 
             // Update local version if session has higher version. Otherwise, cannot perform operation, signal for
             // requeue to try later.
-            if (!TryBumpToVersion(m.header.version, localSession)) return false;
+            if (!TryBumpToVersion(m.header.version, localSession, 0)) return false;
 
             Debug.Assert(localSession.Version() >= m.header.version);
             if (addDeps) ReportVersionDependencies(localSession.Version(), ref batch);
@@ -299,8 +291,10 @@ namespace FASTER.serverless
             var localSession = GetLocalSession(batch.header.sessionId, out var latch);
 
             latch.Wait();
+            var worldLine = 0L;
             try
             {
+                worldLine = workerWorldLine;
                 localSession.UnsafeResumeThread();
             }
             catch (FasterRollbackException) {}
@@ -313,13 +307,7 @@ namespace FASTER.serverless
                     case FasterServerlessMessageType.UpsertRequest:
                     case FasterServerlessMessageType.RmwRequest:
                     case FasterServerlessMessageType.DeleteRequest:
-                        ExecutePeerRequestBlocking(batch, i, replies.obj, localSession);
-                        break;
-                    case FasterServerlessMessageType.RecoveryStatusCheck:
-                        // Always queue a recovery status check
-                        var recoveredCommitPoint = GetSessionRecoveryProgress(batch.header.sessionId,
-                            batch.messages[i].header.worldLine);
-                        replies.obj.AddMessage().ReplyRecoveryResult(ref batch.messages[i], recoveredCommitPoint);
+                        ExecutePeerRequestBlocking(batch, i, replies.obj, localSession, worldLine);
                         break;
                     default:
                         throw new Exception("Unexpected message type");
@@ -329,12 +317,17 @@ namespace FASTER.serverless
                 {
                     try
                     {
+                        worldLine = workerWorldLine;
                         localSession.Refresh();
                     }
                     catch (FasterRollbackException) {}
                 }
             }
 
+            try
+            {
+                localSession.CompletePending(true);
+            } catch (FasterRollbackException) {}
             localSession.UnsafeSuspendThread();
             latch.Release();
 
@@ -345,14 +338,21 @@ namespace FASTER.serverless
         private void ExecutePeerRequestBlocking(ParsedMessageBatch<Key, Value, Input, Output> batch,
             int messageNum,
             ParsedMessageBatch<Key, Value, Input, Output> replies,
-            ClientSession<Key, Value, Input, Output, Empty, Functions> localSession)
+            ClientSession<Key, Value, Input, Output, Empty, Functions> localSession, long worldLineView)
         {
             // If the worker is behind on world line, sit on this request until the worker recovers.
-            WaitUntilWorldLine(batch.messages[messageNum].header.worldLine);
+            while (worldLineView < batch.messages[messageNum].header.worldLine)
+            {
+                worldLineView = workerWorldLine;
+                try
+                {
+                    localSession.Refresh();
+                } catch (FasterRollbackException) {}
+            }
             // Now, if the worker world line is ahead of the client request, the client needs to be notified
             // of a failure the did not observe. Only need to do this when there is no local session on this worker
             // yet, otherwise we can rely on the exception from FASTER itself to achieve this.
-            if (CheckWorkerFailure(ref batch.header, ref batch.messages[messageNum], replies)) return;
+            if (CheckWorkerFailure(ref batch.header, ref batch.messages[messageNum], replies, worldLineView)) return;
 
             var bucket = BucketingScheme.GetBucket(batch.messages[messageNum].key);
             // Begin operation in a epoch-protected region
@@ -365,6 +365,8 @@ namespace FASTER.serverless
             // Update local version if session has higher version. Otherwise, cannot perform operation, signal for
             // requeue to try later.
             WaitUntilVersion(batch.messages[messageNum].header.version, localSession);
+            if (CheckWorkerFailure(ref batch.header, ref batch.messages[messageNum], replies, worldLineView)) return;
+
 
             Debug.Assert(localSession.Version() >= batch.messages[messageNum].header.version);
             // Only need to report dependency for the first message. Ok to report again even if the dependencies

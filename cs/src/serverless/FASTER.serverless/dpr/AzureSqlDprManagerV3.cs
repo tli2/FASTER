@@ -65,7 +65,7 @@ namespace FASTER.serverless
             var queryBuilder = new StringBuilder("INSERT INTO deps VALUES ");
             foreach (var dep in deps)
                 queryBuilder.Append(
-                    $"({persisted.Worker.guid}, {persisted.Version}, {dep.Worker}, {dep.Version}),");
+                    $"({persisted.Worker.guid}, {persisted.Version}, {dep.Worker.guid}, {dep.Version}),");
             // Always add an edge pointing the previous version at the end to ensure that the worker-version has at
             // least one entry in the deps table
             queryBuilder.Append($"({persisted.Worker.guid}, {persisted.Version}, {persisted.Worker.guid}, {persisted.Version - 1});");
@@ -76,7 +76,7 @@ namespace FASTER.serverless
         public void Refresh()
         {
             var newRecoverableCut = new Dictionary<Worker, long>(recoverableCut);
-            var selectCommand = new SqlCommand($"EXEC getTableUpdatesV3 @lastRefreshed='{lastRefreshed:yyyy-MM-dd HH:mm:ss.fff}", readConn);
+            var selectCommand = new SqlCommand($"EXEC getTableUpdatesV3", readConn);
             var reader = selectCommand.ExecuteReader();
             var hasNextRow = reader.Read();
             Debug.Assert(hasNextRow);

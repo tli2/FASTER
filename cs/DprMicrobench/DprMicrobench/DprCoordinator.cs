@@ -48,8 +48,7 @@ namespace FASTER.benchmark
             }
 
             Thread.Sleep(5000);
-
-
+            
             var conn = new SqlConnection(benchmarkConfig.connString);
             conn.Open();
             var deleteCommand = new SqlCommand("EXEC cleanup", conn);
@@ -58,6 +57,7 @@ namespace FASTER.benchmark
             var workerResults = new List<long>();
             var handlerThreads = new List<Thread>();
             var setupFinished = new CountdownEvent(clusterConfig.pods.Count);
+            DateTimeOffset start;
             foreach (var workerInfo in clusterConfig.pods)
             {
                 var ip = IPAddress.Parse(workerInfo.GetAddress());
@@ -71,6 +71,7 @@ namespace FASTER.benchmark
                     while (true)
                     {
                         var message = sender.ReceiveBenchmarkMessage();
+                        start = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1);
                         if (message.type == 1)
                         {
                             setupFinished.Signal();
@@ -79,7 +80,7 @@ namespace FASTER.benchmark
                     }
 
                     setupFinished.Wait();
-                    sender.SendBenchmarkControlMessage("start benchmark");
+                    sender.SendBenchmarkControlMessage(start);
 
                     while (true)
                     {
@@ -120,7 +121,9 @@ namespace FASTER.benchmark
             workerResults.Sort();
             var avg = workerResults.Average();
             var p99 = workerResults[^(workerResults.Count / 100)];
-            Console.WriteLine($"######reported average commit latency {avg}, p99 latency {p99}");
+            // Console.WriteLine($"######reported average commit latency {avg}, p99 latency {p99}, {benchmarkConfig}");
+            foreach (var datapoint in workerResults)
+                Console.WriteLine(datapoint);
         }
     }
 }

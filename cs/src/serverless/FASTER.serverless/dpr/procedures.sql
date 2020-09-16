@@ -1,4 +1,4 @@
-﻿﻿CREATE TABLE dpr (
+﻿CREATE TABLE dpr (
      workerId VARCHAR(255),
      persistedVersion BIGINT,
      safeVersion BIGINT,
@@ -68,7 +68,7 @@ AS BEGIN
     COMMIT
 END
 
-CREATE PROCEDURE getTableUpdatesV3 @lastRefreshed DATETIME
+CREATE PROCEDURE getTableUpdatesV3
 AS BEGIN
     BEGIN TRANSACTION
     DECLARE @systemWorldLine BIGINT

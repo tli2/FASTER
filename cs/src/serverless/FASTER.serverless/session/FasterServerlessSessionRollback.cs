@@ -1,7 +1,8 @@
 ﻿﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Threading;
+ using System.Diagnostics;
+ using System.Threading;
 using FASTER.core;
 
 namespace FASTER.serverless
@@ -49,6 +50,8 @@ namespace FASTER.serverless
                 
                 AttachedWorker.MessageManager.Send(this, requestBatch, AttachedWorker.serializer);
             }
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
             
             var result = new List<long>();
             foreach (var query in recoveryProgress)
@@ -58,7 +61,9 @@ namespace FASTER.serverless
                 recoveryResults.TryRemove(query.Key, out var recoveryResult);
                 result.Add(recoveryResult.recoveredUntil);
             }
+            sw.Stop();
             recoveryProgress.Clear();
+            Console.WriteLine($"session {Id} gathered recovery info in {sw.ElapsedMilliseconds} ms");
             return result;
         }
 
@@ -80,22 +85,8 @@ namespace FASTER.serverless
             while (currentPendingOps.Count != 0)
             {
                 var pendingContext = reusablePendingContexts[currentPendingOps.Dequeue()];
-                // If operation is lost, ignore it, which is equivalent to dropping it
-                if (pendingContext.op.header.serialNum >= recoveredProgress.UntilSerialNo)
+                if (pendingContext.completion.Wait(TimeSpan.Zero))
                 {
-                    continue;
-                }
-
-                // Otherwise, clear pending on the spot, but if it's a read request, and we have lost the response,
-                // remove it from the commit point as an exception.
-                if (pendingContext.op.header.type == FasterServerlessMessageType.ReadRequest
-                    && !pendingContext.completion.IsSet)
-                {
-                    recoveredProgress.ExcludedSerialNos.Add(pendingContext.op.header.serialNum);
-                }
-                else
-                {
-                    pendingContext.completion.Wait();
                     UnboxRemoteExecutionResult(pendingContext);
                     UpdateDependenciesOnPendingOperationResolution(pendingContext);
                 }
@@ -109,7 +100,7 @@ namespace FASTER.serverless
             var recoveredProgress = JoinRecoveryPoint(GatherRecoveryInfo(worldLine), localCommitPoint);
             // Because this thread has already advanced past THROW there is no need to suspend thread, it will not
             // block others from making progress.
-            HandlePendingQueueOnRollback(ref recoveredProgress);
+            // HandlePendingQueueOnRollback(ref recoveredProgress);
             exceptionList.ResolveExceptions(AttachedWorker.DprManager.ReadSnapshot(), opCommitTick, stopwatch.ElapsedTicks);
             TruncateVersionsOnRollback(ref recoveredProgress);
             sessionWorldLine = worldLine;

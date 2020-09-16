@@ -40,9 +40,9 @@ namespace FASTER.benchmark
         {
             if (config.heavyHitterProb == 0.0)
             {
-                return new UniformWorkloadGenerator(config.delayProb);
+                return new UniformWorkloadGenerator(config.depProb);
             }
-            return new SkewedWorkloadGenerator(config.delayProb, config.heavyHitterProb, new Worker(0));
+            return new SkewedWorkloadGenerator(config.depProb, config.heavyHitterProb, new Worker(0));
         }
 
         public void Run()
@@ -76,7 +76,8 @@ namespace FASTER.benchmark
             }
             clientSocket.SendBenchmarkControlMessage("ready");
 
-            clientSocket.ReceiveBenchmarkMessage();
+            var startTime = (DateTimeOffset) clientSocket.ReceiveBenchmarkMessage().content;
+            SpinWait.SpinUntil(() => DateTimeOffset.UtcNow < startTime);
             startSignal.Set();
             foreach (var thread in threads)
                 thread.Join();

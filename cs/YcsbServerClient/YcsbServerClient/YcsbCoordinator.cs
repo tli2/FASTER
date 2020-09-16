@@ -16,22 +16,23 @@ namespace FASTER.benchmark
         static YcsbCoordinator()
         {
             clusterConfig = new ClusterConfiguration();
-            clusterConfig.AddServer("10.0.1.8", 15721)
+            clusterConfig
+                .AddServer("10.0.1.8", 15721)
                 .AddServer("10.0.1.9", 15721)
-                .AddServer("10.0.1.11", 15721)
-                .AddServer("10.0.1.10", 15721)
-                .AddServer("10.0.1.12", 15721)
-                .AddServer("10.0.1.13", 15721)
-                .AddServer("10.0.1.14", 15721)
-                .AddServer("10.0.1.15", 15721)
-                .AddClient("10.0.1.16", 15721)
-                .AddClient("10.0.1.17", 15721)
-                .AddClient("10.0.1.18", 15721)
-                .AddClient("10.0.1.19", 15721)
-                .AddClient("10.0.1.20", 15721)
-                .AddClient("10.0.1.21", 15721)
-                .AddClient("10.0.1.22", 15721)
-                .AddClient("10.0.1.23", 15721);
+            .AddServer("10.0.1.11", 15721)
+            .AddServer("10.0.1.10", 15721)
+            .AddServer("10.0.1.12", 15721)
+            .AddServer("10.0.1.13", 15721)
+            .AddServer("10.0.1.14", 15721)
+            .AddServer("10.0.1.15", 15721)
+            .AddClient("10.0.1.16", 15721)
+            .AddClient("10.0.1.17", 15721)
+            .AddClient("10.0.1.18", 15721)
+            .AddClient("10.0.1.19", 15721)
+            .AddClient("10.0.1.20", 15721)
+            .AddClient("10.0.1.21", 15721)
+            .AddClient("10.0.1.22", 15721)
+            .AddClient("10.0.1.23", 15721);
         }
         
         private BenchmarkConfiguration benchmarkConfig;
@@ -169,7 +170,7 @@ namespace FASTER.benchmark
             {
                 while (stopwatch.ElapsedMilliseconds < BenchmarkConsts.kRunSeconds / 2 * 1000)
                 {
-                    Thread.Sleep(1000);
+                    Thread.Sleep(10);
                 }
                 var command = new SqlCommand($"EXEC setSystemWorldLine @worldLine=1", conn);
                 command.ExecuteNonQuery();
