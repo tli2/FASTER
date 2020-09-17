@@ -53,6 +53,7 @@ namespace FASTER.benchmark
             conn.Open();
             var deleteCommand = new SqlCommand("EXEC cleanup", conn);
             deleteCommand.ExecuteNonQuery();
+            conn.Close();
             
             var workerResults = new List<long>();
             var handlerThreads = new List<Thread>();
@@ -104,12 +105,13 @@ namespace FASTER.benchmark
 
             if (benchmarkConfig.dprType.Equals("v3"))
             {
+                using var dprFinder = new V3DprFinder(benchmarkConfig.connString);
                 var stopwatch = new Stopwatch();
                 stopwatch.Start();
-                while (stopwatch.ElapsedMilliseconds < benchmarkConfig.runSeconds * 1000)
+                while (stopwatch.ElapsedMilliseconds < (benchmarkConfig.runSeconds + 5) * 1000)
                 {
-                    var command = new SqlCommand($"EXEC tryAdvanceAllCpr", conn);
-                    command.ExecuteNonQuery();
+                    dprFinder.UpdateDeps();
+                    dprFinder.TryFindDprCut();
                 }
                 stopwatch.Stop();
             }
@@ -121,9 +123,9 @@ namespace FASTER.benchmark
             workerResults.Sort();
             var avg = workerResults.Average();
             var p99 = workerResults[^(workerResults.Count / 100)];
-            // Console.WriteLine($"######reported average commit latency {avg}, p99 latency {p99}, {benchmarkConfig}");
-            foreach (var datapoint in workerResults)
-                Console.WriteLine(datapoint);
+            Console.WriteLine($"######reported average commit latency {avg}, p99 latency {p99}, {benchmarkConfig}");
+            // foreach (var datapoint in workerResults)
+                // Console.WriteLine(datapoint);
         }
     }
 }

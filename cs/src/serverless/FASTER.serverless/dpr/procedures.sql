@@ -28,6 +28,14 @@ AS BEGIN
     RETURN IIF (EXISTS(SELECT * FROM worldLines WHERE worldLine < @dprManagerWorldLine), 1, 0)
 END
 
+CREATE PROCEDURE drainDeps
+AS BEGIN
+    BEGIN TRANSACTION
+      SELECT * FROM deps
+      DELETE FROM deps
+   COMMIT
+END
+
 CREATE PROCEDURE upsertVersion @worker VARCHAR(255), @version BIGINT, @oegVersion BIGINT
 AS BEGIN
     BEGIN TRANSACTION
