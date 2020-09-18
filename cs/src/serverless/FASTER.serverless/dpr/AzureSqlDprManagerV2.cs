@@ -72,7 +72,7 @@ namespace FASTER.serverless
             upsert.ExecuteNonQuery();
         }
 
-        public void ReportNewPersistentVersion(WorkerVersion persisted, IEnumerable<WorkerVersion> deps)
+        public void ReportNewPersistentVersion(WorkerVersion persisted, List<WorkerVersion> deps)
         {
             outstandingVersions.Add(persisted.Version);
             outstandingVersionsDeps.Add(deps);

@@ -6,7 +6,7 @@ namespace DprMicrobench
 {
     public interface IWorkloadGenerator
     {
-        IEnumerable<WorkerVersion> GenerateDependenciesOneRun(IList<Worker> workers, Worker me, long currentVersion);
+        List<WorkerVersion> GenerateDependenciesOneRun(IList<Worker> workers, Worker me, long currentVersion);
     }
 
     public class UniformWorkloadGenerator : IWorkloadGenerator
@@ -20,7 +20,7 @@ namespace DprMicrobench
             this.depProb = depProb;
         }
         
-        public IEnumerable<WorkerVersion> GenerateDependenciesOneRun(IList<Worker> workers, Worker me,long currentVersion)
+        public List<WorkerVersion> GenerateDependenciesOneRun(IList<Worker> workers, Worker me,long currentVersion)
         {
             dependecies.Clear();
             foreach (var worker in workers)
@@ -49,7 +49,7 @@ namespace DprMicrobench
             this.heavyHitter = heavyHitter;
         }
 
-        public IEnumerable<WorkerVersion> GenerateDependenciesOneRun(IList<Worker> workers, Worker me,long currentVersion)
+        public List<WorkerVersion> GenerateDependenciesOneRun(IList<Worker> workers, Worker me,long currentVersion)
         {
             dependecies.Clear();
             foreach (var worker in workers)

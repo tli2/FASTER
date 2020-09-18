@@ -28,7 +28,7 @@ namespace FASTER.serverless
         /// </summary>
         /// <param name="newVersion"></param>
         /// <returns></returns>
-        void ReportNewPersistentVersion(WorkerVersion persisted, IEnumerable<WorkerVersion> deps);
+        void ReportNewPersistentVersion(WorkerVersion persisted, List<WorkerVersion> deps);
         
         /// <summary>
         /// 

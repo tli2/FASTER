@@ -1,11 +1,9 @@
-﻿﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.Azure.Storage.Blob;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
 
 namespace FASTER.serverless
 {
@@ -15,7 +13,8 @@ namespace FASTER.serverless
         private Dictionary<Worker, long> recoverableCut;
         private long systemWorldLine;
         private readonly SqlConnection writeConn, readConn;
-        private DateTime lastRefreshed = DateTime.UtcNow;
+        private Socket dprFinderConn;
+        private byte[] buffer = new byte[1 << 15];
 
         public AzureSqlDprManagerV3(string connString, Worker me)
         {
@@ -25,10 +24,17 @@ namespace FASTER.serverless
             readConn = new SqlConnection(connString);
             writeConn.Open();
             readConn.Open();
-            var registration = new SqlCommand($"EXEC upsertVersion @worker={me.guid}, @version=0, @oegVersion=0", writeConn);
+            var registration = new SqlCommand($"EXEC upsertVersion @worker={me.guid}, @version=0, @oegVersion=0",
+                writeConn);
             registration.ExecuteNonQuery();
             var worldLines = new SqlCommand($"INSERT INTO worldLines VALUES({me.guid}, 0)", writeConn);
             worldLines.ExecuteNonQuery();
+
+            var ip = IPAddress.Parse("10.0.1.7");
+            var endPoint = new IPEndPoint(ip, 15000);
+            var sender = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            sender.NoDelay = true;
+            sender.Connect(endPoint);
         }
 
         public long SafeVersion(Worker worker)
@@ -50,7 +56,8 @@ namespace FASTER.serverless
         {
             // V1 does not use the safeVersion column, can always use 0
             var upsert = new SqlCommand($"EXEC reportRecoveryV3 @workerId={latestRecoveredVersion.Worker.guid}," +
-                                        $"@worldLine={worldLine}, @survivingVersion={latestRecoveredVersion.Version}", writeConn);
+                                        $"@worldLine={worldLine}, @survivingVersion={latestRecoveredVersion.Version}",
+                writeConn);
             upsert.ExecuteNonQuery();
         }
 
@@ -60,17 +67,22 @@ namespace FASTER.serverless
             return 0;
         }
 
-        public void ReportNewPersistentVersion(WorkerVersion persisted, IEnumerable<WorkerVersion> deps)
+        public void ReportNewPersistentVersion(WorkerVersion persisted, List<WorkerVersion> deps)
         {
-            var queryBuilder = new StringBuilder("INSERT INTO deps VALUES ");
-            foreach (var dep in deps)
-                queryBuilder.Append(
-                    $"({persisted.Worker.guid}, {persisted.Version}, {dep.Worker.guid}, {dep.Version}),");
-            // Always add an edge pointing the previous version at the end to ensure that the worker-version has at
-            // least one entry in the deps table
-            queryBuilder.Append($"({persisted.Worker.guid}, {persisted.Version}, {persisted.Worker.guid}, {persisted.Version - 1});");
-            var insert = new SqlCommand(queryBuilder.ToString(), writeConn);
-            insert.ExecuteNonQuery();
+            var stream = new MemoryStream(buffer);
+            var writer = new BinaryWriter(stream);
+            var size = 16 + 4 + 16 * deps.Count;
+            writer.Write(size);
+            writer.Write(persisted.Worker.guid);
+            writer.Write(persisted.Version);
+            writer.Write(deps.Count);
+            foreach (var wv in deps)
+            {
+                writer.Write(wv.Worker.guid);
+                writer.Write(wv.Version);
+            }
+
+            dprFinderConn.Send(buffer);
         }
 
         public void Refresh()
@@ -80,7 +92,6 @@ namespace FASTER.serverless
             var reader = selectCommand.ExecuteReader();
             var hasNextRow = reader.Read();
             Debug.Assert(hasNextRow);
-            lastRefreshed = (DateTime) reader[0];
             systemWorldLine = (long) reader[1];
 
             var hasNextResultSet = reader.NextResult();
@@ -100,6 +111,7 @@ namespace FASTER.serverless
         {
             writeConn.Dispose();
             readConn.Dispose();
+            dprFinderConn.Close();
         }
     }
 }

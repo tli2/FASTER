@@ -64,7 +64,7 @@ namespace FASTER.serverless
             return new V1DprTableSnapshot(globalSafeVersionNum);
         }
 
-        public void ReportNewPersistentVersion(WorkerVersion persisted, IEnumerable<WorkerVersion> deps)
+        public void ReportNewPersistentVersion(WorkerVersion persisted, List<WorkerVersion> deps)
         {
             // V1 does not use the safeVersion column, can always use 0
             var upsert = new SqlCommand($"EXEC upsertVersion @worker={persisted.Worker.guid}," +
