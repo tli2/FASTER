@@ -106,14 +106,18 @@ namespace FASTER.benchmark
             if (benchmarkConfig.dprType.Equals("v3"))
             {
                 using var dprFinder = new V3DprFinder(benchmarkConfig.connString);
+                var dispatchThread = new Thread(() => dprFinder.StartServer("10.0.1.7", 15445));
+                dispatchThread.Start();
                 var stopwatch = new Stopwatch();
                 stopwatch.Start();
-                while (stopwatch.ElapsedMilliseconds < (benchmarkConfig.runSeconds + 5) * 1000)
+                while (stopwatch.ElapsedMilliseconds < (benchmarkConfig.runSeconds + 1) * 1000)
                 {
                     dprFinder.UpdateDeps();
                     dprFinder.TryFindDprCut();
                 }
                 stopwatch.Stop();
+                dprFinder.StopServer();
+                dispatchThread.Join();
             }
             
             foreach (var thread in handlerThreads)

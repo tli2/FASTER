@@ -1,30 +1,82 @@
 ﻿
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 
 namespace FASTER.serverless
 {
+    public class ConnectionState
+    {
+        public byte[] buffer = new byte[1 << 15];
+        public int head = 0, packetSize = 0, received = 0;
+        public Socket socket;
+
+        public ConnectionState(Socket socket)
+        {
+            this.socket = socket;
+        }
+
+        public bool HasCompleteMessage()
+        {
+            if (received < sizeof(int)) return false;
+            packetSize = BitConverter.ToInt32(buffer, head);
+            head += sizeof(int);
+            return received - head >= packetSize;
+        }
+        
+        public (WorkerVersion, List<WorkerVersion>) ReadMessage()
+        {
+            var persistent = new WorkerVersion();
+            var deps = new List<WorkerVersion>();
+            
+            persistent.Worker = new Worker(BitConverter.ToInt64(buffer, head));
+            head += sizeof(long);
+            persistent.Version = BitConverter.ToInt64(buffer, head);
+            head += sizeof(long);
+            var numDeps = BitConverter.ToInt32(buffer, head);
+            head += sizeof(int);
+            for (var i = 0; i < numDeps; i++)
+            {
+                var wv = new WorkerVersion();
+                wv.Worker = new Worker(BitConverter.ToInt64(buffer, head));
+                head += sizeof(long);
+                wv.Version = BitConverter.ToInt64(buffer, head);
+                head += sizeof(long);
+                deps.Add(wv);
+            }
+            Array.Copy(buffer, head, buffer, 0, received - head);
+            received -= head;
+            head = 0;
+            return ValueTuple.Create(persistent, deps);
+        }
+    }
+    
     public class V3DprFinder : IDisposable
     {
-        private readonly SqlConnection writeConn, readConn;
+        private readonly SqlConnection writeConn;
         private Dictionary<Worker, long> currentDprCut;
         private Dictionary<WorkerVersion, List<WorkerVersion>> precedenceGraph;
         private Queue<WorkerVersion> wvs;
 
         private HashSet<WorkerVersion> visited;
         private Queue<WorkerVersion> frontier;
-        
+
+        private Socket servSocket;
+        private ConcurrentQueue<(WorkerVersion, List<WorkerVersion>)> pendingUpdates = new ConcurrentQueue<(WorkerVersion, List<WorkerVersion>)>();
+        private bool done = false;
+
         public V3DprFinder(string connString)
         {
             currentDprCut = new Dictionary<Worker, long>();
             precedenceGraph = new Dictionary<WorkerVersion, List<WorkerVersion>>();
             wvs = new Queue<WorkerVersion>();
             writeConn = new SqlConnection(connString);
-            readConn = new SqlConnection(connString);
             writeConn.Open();
-            readConn.Open();
             
             visited = new HashSet<WorkerVersion>();
             frontier = new Queue<WorkerVersion>();
@@ -33,7 +85,6 @@ namespace FASTER.serverless
         public void Dispose()
         {
             writeConn.Dispose();
-            readConn.Dispose();
         }
 
         private void WriteDprCut()
@@ -98,21 +149,51 @@ namespace FASTER.serverless
 
         public void UpdateDeps()
         {
-            var selectCommand = new SqlCommand($"EXEC drainDeps", readConn);
-            var reader = selectCommand.ExecuteReader();
-            while (reader.Read())
+            while (pendingUpdates.TryDequeue(out var entry))
             {
-                var fromWv = new WorkerVersion(long.Parse((string) reader[0]), (long) reader[1]);
-                var toWv = new WorkerVersion(long.Parse((string) reader[2]), (long) reader[3]);
-                if (!precedenceGraph.TryGetValue(fromWv, out var deps))
-                {
-                    deps = new List<WorkerVersion>();
-                    precedenceGraph.Add(fromWv, deps);
-                    wvs.Enqueue(fromWv);
-                }
-                deps.Add(toWv);
+                precedenceGraph.Add(entry.Item1, entry.Item2);
+                wvs.Enqueue(entry.Item1);
             }
-            reader.Close();
+        }
+
+        private void ReceiveCallback(IAsyncResult ar)
+        {
+            var connState = (ConnectionState) ar.AsyncState;
+            var read = connState.socket.EndReceive(ar);
+            connState.received += read;
+            while (connState.HasCompleteMessage())
+                pendingUpdates.Enqueue(connState.ReadMessage());
+            connState.socket.BeginReceive(connState.buffer, connState.head, connState.buffer.Length - connState.head, SocketFlags.None, ReceiveCallback, connState);
+        }
+
+        public async void StartServer(string hostname, int port)
+        {
+            var ip = IPAddress.Parse(hostname);
+            var endPoint = new IPEndPoint(ip, port);
+            servSocket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            servSocket.Bind(endPoint);
+            servSocket.Listen(512);
+
+            var e = new ManualResetEventSlim();
+            while (!done)
+            {
+                e.Reset();
+                servSocket.BeginAccept(ar =>
+                {
+                    e.Set();
+                    var socket = servSocket.EndAccept(ar);
+                    var state = new ConnectionState(socket);
+                    socket.BeginReceive(state.buffer, state.head, state.buffer.Length, SocketFlags.None, ReceiveCallback , state);
+                }, null);
+                
+                while (!e.Wait(TimeSpan.FromMilliseconds(10)))
+                    if (done) break;
+            }
+        }
+
+        public void StopServer()
+        {
+            done = true;
         }
 
     }

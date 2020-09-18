@@ -28,7 +28,7 @@ namespace FASTER.serverless
 
         public void AddDependency(Worker worker, long version) => deps.Update(worker, version);
 
-        public IEnumerable<WorkerVersion> GetDependenciesSlow()
+        public List<WorkerVersion> GetDependenciesSlow()
         {
             var result = new List<WorkerVersion>();
             for (var i = 0; i < deps.DependentVersions.Length; i++)
