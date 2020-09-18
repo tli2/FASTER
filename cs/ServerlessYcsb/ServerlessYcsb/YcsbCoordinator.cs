@@ -118,6 +118,7 @@ namespace FASTER.benchmark
 
             var bgPercentage = totalRemote == 0 ? 0.0 : (double) totalBackground / totalRemote;
             Console.WriteLine($"############total throughput {1000.0 * totalOps / stopwatch.ElapsedMilliseconds}, %Background {100 * bgPercentage}, {benchmarkConfig}");
+            Thread.Sleep(5000);
         }
     }
 }

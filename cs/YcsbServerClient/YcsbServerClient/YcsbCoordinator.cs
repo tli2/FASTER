@@ -72,7 +72,8 @@ namespace FASTER.benchmark
 
             var handlerThreads = new List<Thread>();
             var setupFinished = new CountdownEvent(clusterConfig.members.Count);
-            long totalOps = 0, totalRemote = 0, totalBackground = 0;
+            double totalOps = 0.0;
+            double totalLatency = 0.0;
             var stopwatch = new Stopwatch();
             var clientCountdown = new CountdownEvent(clusterConfig.members.Count - clusterConfig.servers.Count);
             var shutdown = new ManualResetEventSlim();
@@ -106,10 +107,12 @@ namespace FASTER.benchmark
                         if (message == null) break;
                         if (message.type == 1)
                         {
-                            var (ops, numRemote, numBackground) = (ValueTuple<long, long, long>) message.content;
-                            Interlocked.Add(ref totalOps, ops);
-                            Interlocked.Add(ref totalRemote, numRemote);
-                            Interlocked.Add(ref totalBackground, numBackground);
+                            var (ops, ticks) = (ValueTuple<double, double>) message.content;
+                            lock (this)
+                            {
+                                totalOps += ops;
+                                totalLatency += ticks;
+                            }
                             clientCountdown.Signal();
                             shutdown.Wait();
                             sender.SendBenchmarkControlMessage("shutdown");
@@ -154,10 +157,12 @@ namespace FASTER.benchmark
                         if (message == null) break;
                         if (message.type == 1)
                         {
-                            var (ops, numRemote, numBackground) = (ValueTuple<long, long, long>) message.content;
-                            Interlocked.Add(ref totalOps, ops);
-                            Interlocked.Add(ref totalRemote, numRemote);
-                            Interlocked.Add(ref totalBackground, numBackground);
+                            var (ops, ticks) = (ValueTuple<double, double>) message.content;
+                            lock (this)
+                            {
+                                totalOps += ops;
+                                totalLatency += ticks;
+                            }
                         }
                     }
                     sender.Close();
@@ -184,7 +189,8 @@ namespace FASTER.benchmark
             foreach (var thread in handlerThreads)
                 thread.Join();
 
-            Console.WriteLine($"############total throughput {1000.0 * totalOps / stopwatch.ElapsedMilliseconds}, {benchmarkConfig}");
+            Console.WriteLine($"############total throughput {totalOps}, avg latency {totalLatency / 8} ms, {benchmarkConfig}");
+
         }
     }
 }

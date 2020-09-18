@@ -212,8 +212,20 @@ namespace FASTER.benchmark
                 session.Join();
             sw.Stop();
             var seconds = sw.ElapsedMilliseconds / 1000.0;
+            double medianLatency = 0.0;
+            if (BenchmarkConsts.kCollectLatency)
+            {
+                var latencies = new List<double>();
+                foreach (var s in localSessions)
+                {
+                    for (var i = 0; i < s.NextSerialNum(); i++)
+                        latencies.Add(1000.0 * (s.opEndTick[i] - s.opStartTick[i]) / Stopwatch.Frequency);
+                }
+                latencies.Sort();
+                medianLatency = latencies[latencies.Count / 2];
+            }
             PrintToCoordinator($"##, {totalOps / seconds}", coordinatorConn);
-            coordinatorConn.SendBenchmarkControlMessage(ValueTuple.Create(totalOps, fasterServerless.numRemote, fasterServerless.numBackground));
+            coordinatorConn.SendBenchmarkControlMessage(ValueTuple.Create(totalOps / seconds, medianLatency));
             coordinatorConn.ReceiveBenchmarkMessage();
 
             if (BenchmarkConsts.kCollectLatency)
@@ -276,7 +288,7 @@ namespace FASTER.benchmark
                             commitTimes.Add(1000.0 * s.opCommitTick[i] / Stopwatch.Frequency);
                         }
                     }
-                
+                    
                     var random =  new Random();
                     for (var i = 0; i < startTimes.Count; i++)
                     {

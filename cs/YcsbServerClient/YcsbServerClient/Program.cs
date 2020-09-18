@@ -23,7 +23,7 @@ namespace FASTER.benchmark
         public const int kWorkerIdBits = 3;
 
         public const bool kCollectLatency = true;
-        public const bool kTriggerRecovery = true;
+        public const bool kTriggerRecovery = false;
     }
     
     class Options
