@@ -59,16 +59,16 @@ namespace FASTER.benchmark
             var cleanup = new SqlCommand("EXEC cleanup", conn);
             cleanup.ExecuteNonQuery();
 
-            foreach (var workerInfo in clusterConfig.members)
-            {
-                var ip = IPAddress.Parse(workerInfo.GetAddress());
-                var endPoint = new IPEndPoint(ip, 15000);
-                var sender = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                sender.Connect(endPoint);
-                sender.Close();
-            }
+            // foreach (var workerInfo in clusterConfig.members)
+            // {
+            //     var ip = IPAddress.Parse(workerInfo.GetAddress());
+            //     var endPoint = new IPEndPoint(ip, 15000);
+            //     var sender = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            //     sender.Connect(endPoint);
+            //     sender.Close();
+            // }
 
-            Thread.Sleep(5000);
+            // Thread.Sleep(5000);
 
             var handlerThreads = new List<Thread>();
             var setupFinished = new CountdownEvent(clusterConfig.members.Count);

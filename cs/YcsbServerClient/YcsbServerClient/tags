@@ -1,0 +1,8 @@
+!_TAG_FILE_SORTED	2	/0=unsorted, 1=sorted, 2=foldcase/
+benchmarkConfig	/Users/Tianyu/Desktop/MIT/FASTER/cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs	/^        private BenchmarkConfiguration benchmarkConfig;$/;"	f	language:C#	class:FASTER.benchmark.YcsbCoordinator	file:
+clusterConfig	/Users/Tianyu/Desktop/MIT/FASTER/cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs	/^        public static ClusterConfiguration clusterConfig;$/;"	f	language:C#	class:FASTER.benchmark.YcsbCoordinator
+FASTER.benchmark	/Users/Tianyu/Desktop/MIT/FASTER/cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs	/^namespace FASTER.benchmark$/;"	n	language:C#
+Run	/Users/Tianyu/Desktop/MIT/FASTER/cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs	/^        public void Run()$/;"	m	language:C#	class:FASTER.benchmark.YcsbCoordinator
+YcsbCoordinator	/Users/Tianyu/Desktop/MIT/FASTER/cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs	/^        public YcsbCoordinator(BenchmarkConfiguration benchmarkConfig)$/;"	m	language:C#	class:FASTER.benchmark.YcsbCoordinator
+YcsbCoordinator	/Users/Tianyu/Desktop/MIT/FASTER/cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs	/^        static YcsbCoordinator()$/;"	m	language:C#	class:FASTER.benchmark.YcsbCoordinator	file:
+YcsbCoordinator	/Users/Tianyu/Desktop/MIT/FASTER/cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs	/^    public class YcsbCoordinator$/;"	c	language:C#	namespace:FASTER.benchmark

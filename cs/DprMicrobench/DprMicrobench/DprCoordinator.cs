@@ -37,17 +37,17 @@ namespace FASTER.benchmark
 
         public void Run()
         {
-            foreach (var workerInfo in clusterConfig.pods)
-            {
-                var ip = IPAddress.Parse(workerInfo.GetAddress());
-                var endPoint = new IPEndPoint(ip, 15000);
-                var sender = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                sender.NoDelay = true;
-                sender.Connect(endPoint);
-                sender.Close();
-            }
+            // foreach (var workerInfo in clusterConfig.pods)
+            // {
+            //     var ip = IPAddress.Parse(workerInfo.GetAddress());
+            //     var endPoint = new IPEndPoint(ip, 15000);
+            //     var sender = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            //     sender.NoDelay = true;
+            //     sender.Connect(endPoint);
+            //     sender.Close();
+            // }
 
-            Thread.Sleep(5000);
+            // Thread.Sleep(5000);
             
             var conn = new SqlConnection(benchmarkConfig.connString);
             conn.Open();
