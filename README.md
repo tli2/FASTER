@@ -12,7 +12,7 @@ the `coordinator` option to start a run with the  appropriate command-line argum
 constants can be tuned under `BenchmarkConsts` in the main file of each benchmark.
 
 An example of this would be if one wishes to reproduce the failure experiment from section 6.5 on a smaller cluster of two
-machines, one should replace `clsuterConfig` in `cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs` with the desired 
+machines, one should replace `clusterConfig` in `cs/YcsbServerClient/YcsbServerClient/YcsbCoordinator.cs` with the desired 
 cluster, and set `BenchmarkConsts::kTriggerRecovery = true` in `cs/YcsbServerClient/YcsbServerClient/Program.cs`. Then, on
 the two machines, run `<executable> -t worker -n 0` and `<executable> -t worker -n 1` respectively, with `-n` corresponding
 to their position in the declaration. Then, from a third machine, run `<executable> -t coordinator -c 16 -s 16 -b 1024 -d uniform -r 50 -i 100 -w 1024`
