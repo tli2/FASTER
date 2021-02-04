@@ -10,11 +10,11 @@ def concat_file(filename, files):
 
 def aggregate_file(filename, files):
     output = open(filename + '.txt', 'w')
-    data = [0 for i in range(120)]
+    data = [0 for i in range(180)]
     for file in files:
         f = open(filename + str(file) + '.txt')
         lines = f.readlines()
-        for i in range(120):
+        for i in range(180):
             data[i] += float(lines[i])
         f.close()
     for line in data:
