@@ -13,48 +13,7 @@ namespace FASTER.serverless
         where Functions : IFunctions<Key, Value, Input, Output, Empty>
     {
         public long numRemote, numBackground;
-
-        public CommitPoint GetSessionRecoveryProgress(Guid sessionId, long worldLine)
-        {
-            
-            // At this point the world line could be ahead of what the requested world-line is, but in that case.
-            // said worker will eventually need to come ask us again, and it doesn't matter what answer we give now.
-            if (cachedLocalSessions.TryGetValue(sessionId, out var localSession))
-            {
-                try
-                {
-                    while (workerWorldLine < worldLine)
-                    {
-                        localSession.Item1.Refresh();
-                    }
-                
-                    localSession.Item1.Refresh();
-                } catch (FasterRollbackException) {}
-
-                // In this case the session's progress is stored in its commit point. It suffices to read that out.
-                var result = localSession.Item1.CommitPoint();
-                return result;
-            }
-
-            throw new NotImplementedException();
-            // Otherwise, maybe this worker crashed and we need to resume process from a checkpoint
-            // try
-            // {
-            //     var recoveredSession = localFaster.ResumeSession(sessionId.ToString(), out var commitPoint, true);
-            //     // Immediately suspend thread because it comes back affinitized, and we will not be operating on the
-            //     // session here.
-            //     recoveredSession.UnsafeSuspendThread();
-            //     cachedLocalSessions.TryAdd(sessionId, ValueTuple.Create(recoveredSession, new SemaphoreSlim(1, 1)));
-            //     return commitPoint;
-            // }
-            // catch (FasterException)
-            // {
-            //     // An exception is thrown here if there are no corresponding recovered version, which could be because
-            //     // the request message got lost. Simply return a trivial commit point suffices.
-            //     return new CommitPoint();
-            // }
-        }
-
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal Worker Me() => MessageManager.Me();
 
@@ -153,8 +112,8 @@ namespace FASTER.serverless
                 case FasterServerlessMessageType.DeleteRequest:
                     return TryExecutePeerRequest(ref batch, ref m, ref replies, localSession, addDeps, worldLineView);
                 case FasterServerlessMessageType.RecoveryStatusCheck:
-                    var recoveredCommitPoint = GetSessionRecoveryProgress(batch.header.sessionId, m.header.worldLine);
-                    replies.AddMessage().ReplyRecoveryResult(ref m, recoveredCommitPoint);
+                    if (worldLineView < m.header.worldLine) return false;
+                    replies.AddMessage().ReplyRecoveryResult(ref m, localSession.CommitPoint());
                     return true;
                 // TODO(Tianyu): Add ownership transfer functionality back in at some point
                 // case FasterServerlessMessageType.OwnershipDropped:
@@ -308,6 +267,18 @@ namespace FASTER.serverless
                     case FasterServerlessMessageType.RmwRequest:
                     case FasterServerlessMessageType.DeleteRequest:
                         ExecutePeerRequestBlocking(batch, i, replies.obj, localSession, worldLine);
+                        break;
+                    case FasterServerlessMessageType.RecoveryStatusCheck:
+                        while (worldLine < batch.messages[i].header.worldLine)
+                        {
+                            try
+                            {
+                                worldLine = workerWorldLine;
+                                localSession.Refresh();
+                            }
+                            catch (FasterRollbackException) {}
+                        }
+                        replies.obj.AddMessage().ReplyRecoveryResult(ref batch.messages[i], localSession.CommitPoint());
                         break;
                     default:
                         throw new Exception("Unexpected message type");
