@@ -15,7 +15,7 @@ namespace FASTER.client
         public int morselSize = 512;
 
         // batch size for background sends
-        public int batchSize = 16;
+        public int batchSize = 64;
         
         public bool speculative = false;
         

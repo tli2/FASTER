@@ -194,7 +194,6 @@ public class SearchListDataLoader
     public async Task Run()
     {
         var semaphore = new SemaphoreSlim(128, 128);
-        var session = new DprSession();
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
@@ -214,14 +213,19 @@ public class SearchListDataLoader
                     await semaphore.WaitAsync();
                     _ = Task.Run(async () =>
                     {
-                        try
+                        while (true)
                         {
-                            await client.EnqueueEventsAsync(batched1, session);
-                        }
-                        finally
-                        {
-                            semaphore.Release();
-                            // Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
+                            try
+                            {
+                                await client.EnqueueEventsAsync(batched1);
+                                semaphore.Release();
+                                return;
+                            }
+                            catch (Exception e)
+                            {
+                                // Wait a bit so failures can recover
+                                await Task.Delay(100);
+                            }
                         }
                     });
                     batched = new EnqueueRequest
@@ -242,14 +246,19 @@ public class SearchListDataLoader
                 var batched1 = batched;
                 _ = Task.Run(async () =>
                 {
-                    try
+                    while (true)
                     {
-                        await client.EnqueueEventsAsync(batched1, session);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                        // Console.WriteLine($"Batched {batched1.Events.Count} requests, and request returned in {stopwatch.ElapsedMilliseconds - now} ms");
+                        try
+                        {
+                            await client.EnqueueEventsAsync(batched1);
+                            semaphore.Release();
+                            return;
+                        }
+                        catch (Exception e)
+                        {
+                            // Wait a bit so failures can recover
+                            await Task.Delay(100);
+                        }
                     }
                 });
                 batched = new EnqueueRequest
@@ -259,7 +268,6 @@ public class SearchListDataLoader
                 };
             }
         }
-        Console.WriteLine("########## Finished publishing messages");
         var termination = new EnqueueRequest
         {
             ProducerId = 0,
@@ -267,6 +275,19 @@ public class SearchListDataLoader
             TopicId = topicName,
         };
         termination.Events.Add($"termination");
-        await client.EnqueueEventsAsync(termination, session);
+        while (true)
+        {
+            try
+            {
+                await client.EnqueueEventsAsync(termination);
+                break;
+            }
+            catch (Exception e)
+            {
+                // Wait a bit so failures can recover
+                await Task.Delay(100);
+            }
+        }
+        Console.WriteLine("########## Finished publishing messages");
     }
 }

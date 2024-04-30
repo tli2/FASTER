@@ -13,4 +13,5 @@ processors:
   - name: detection
   - name: filter
     
-speculative: false
+pubsub_speculative: false
+processor_speculative: false
