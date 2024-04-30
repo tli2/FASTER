@@ -243,7 +243,7 @@ namespace FASTER.libdpr
                                     return;
                                 }
                         }
-
+                    
                         // Clear any leftover state and signal complete
                         versions.Clear();
                         var newDeps = dependencySetPool.Checkout();
@@ -253,7 +253,6 @@ namespace FASTER.libdpr
                         Debug.Assert(success);
                         worldLine = newWorldLine;
                     }
-
                 }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
             }
         }

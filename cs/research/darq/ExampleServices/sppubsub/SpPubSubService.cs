@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using darq.client;
 using FASTER.client;
@@ -87,10 +88,16 @@ public class PubsubDarqProducer : IDarqProducer
         {
             Task.Run(async () =>
             {
-                await client.EnqueueEventsAsync(entry.Item1, session);
-                foreach (var callback in entry.Item2) callback(true);
-                requestPool.Return(entry.Item1);
-                callbackPool.Return(entry.Item2);
+                try
+                {
+                    await client.EnqueueEventsAsync(entry.Item1, session);
+                    foreach (var callback in entry.Item2) callback(true);
+                }
+                finally
+                {
+                    requestPool.Return(entry.Item1);
+                    callbackPool.Return(entry.Item2);
+                }
             });
         }
         currentRequest.Clear();
@@ -237,8 +244,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                     request.ProducerId, request.SequenceNum)
             };
             topic.EndAction();
-            if (!request.FireAndForget)
-                await topic.DprCommit(wl, v);
+            await topic.DprCommit(wl, v);
             return result;
         }
     }
@@ -307,8 +313,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             };
             topic.EndAction(epochContext);
             stepRequestPool.Return(requestObject);
-            if (!request.FireAndForget)
-                await topic.DprCommit(wl, v);
+            await topic.DprCommit(wl, v);
             return result;
         }
     }

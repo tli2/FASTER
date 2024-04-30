@@ -25,7 +25,6 @@ public class PubsubCapabilities
     {
         request.IncarnationId = incarnationId;
         request.TopicId = topicId;
-        request.FireAndForget = true;
         return client.StepAsync(request, session);
     }
 }
@@ -53,7 +52,7 @@ public class SpPubSubProcessorClient
             {
                 client = client,
                 // To ensure that step returns quickly, make the return speculative even if processing is not 
-                session = session,
+                session = speculative ? session : new DprSession(),
                 incarnationId = incarnationId,
                 topicId = topicId
             });

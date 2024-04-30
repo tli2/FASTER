@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using dse.services;
+using FASTER.libdpr;
 using MathNet.Numerics.Distributions;
 using Newtonsoft.Json;
 using pubsub;
@@ -193,12 +194,12 @@ public class SearchListDataLoader
     public async Task Run()
     {
         var semaphore = new SemaphoreSlim(128, 128);
+        var session = new DprSession();
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
             ProducerId = 0,
             TopicId = topicName,
-            FireAndForget = true
         };
         for (var i = 0; i < parsedJsons.Count; i++)
         {
@@ -215,7 +216,7 @@ public class SearchListDataLoader
                     {
                         try
                         {
-                            await client.EnqueueEventsAsync(batched1);
+                            await client.EnqueueEventsAsync(batched1, session);
                         }
                         finally
                         {
@@ -227,7 +228,6 @@ public class SearchListDataLoader
                     {
                         ProducerId = 0,
                         TopicId = topicName,
-                        FireAndForget = true
                     };
                 }
                 Thread.Yield();
@@ -244,7 +244,7 @@ public class SearchListDataLoader
                 {
                     try
                     {
-                        await client.EnqueueEventsAsync(batched1);
+                        await client.EnqueueEventsAsync(batched1, session);
                     }
                     finally
                     {
@@ -256,7 +256,6 @@ public class SearchListDataLoader
                 {
                     ProducerId = 0,
                     TopicId = topicName,
-                    FireAndForget = true
                 };
             }
         }
@@ -265,9 +264,9 @@ public class SearchListDataLoader
         {
             ProducerId = 0,
             SequenceNum = parsedJsons.Count,
-            TopicId = topicName
+            TopicId = topicName,
         };
         termination.Events.Add($"termination");
-        await client.EnqueueEventsAsync(termination);
+        await client.EnqueueEventsAsync(termination, session);
     }
 }
