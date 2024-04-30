@@ -36,7 +36,7 @@ spec:
           args:
             - "-t"
             - "{{ .name }}"
-            {{- if $.Values.speculative }}
+            {{- if $.Values.processor_speculative }}
             - "-s"
             {{- end }}
           image: tianyuli96/faster:latest

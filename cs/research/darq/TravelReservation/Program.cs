@@ -168,7 +168,7 @@ public class Program
         builder.Services.AddSingleton(new DarqSettings
         {
             MyDpr = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress(environment.GetDprFinderConnString())),
+            DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             LogDevice = environment.GetOrchestratorDevice(options),
             LogCommitManager = checkpointManager, 
             PageSize = 1L << 22,
@@ -275,7 +275,7 @@ public class Program
         builder.Services.AddSingleton(new DprWorkerOptions
         {
             Me = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress(environment.GetDprFinderConnString())),
+            DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             CheckpointPeriodMilli = 10,
             RefreshPeriodMilli = 5
         });

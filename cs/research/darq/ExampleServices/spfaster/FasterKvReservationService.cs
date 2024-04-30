@@ -109,7 +109,7 @@ public class FasterKvReservationStateObject : StateObject
     public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
     {
         // TODO(Tianyu): Do something about index checkpoints
-        Console.WriteLine($"Performing checkpoint for version {version}");
+        // Console.WriteLine($"Performing checkpoint for version {version}");
         Guid token;
         // If return is false, this means the previous checkpoint is still running and we should not advance more
         var success = kv.TryTakeDprStyleCheckpoint(version, metadata, onPersist, out token);

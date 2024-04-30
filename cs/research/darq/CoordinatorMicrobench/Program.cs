@@ -115,12 +115,9 @@ public class Program
         for (var i = 0; i < options.NumWorkers; i++)
             toSimulate.Add(new DprWorkerId(i * options.NumPods + options.PodId));
 
-        var channel = GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721");
-        // var channel = GrpcChannel.ForAddress("http://127.0.0.1:15721");
-
-        var finder = new GrpcDprFinder(channel);
+        var finder = new GrpcDprFinder("http://dprfinder.dse.svc.cluster.local:15721");
         var worker = new SimulatedDprWorker(finder, new UniformWorkloadGenerator(options.DependencyProbability), workers, toSimulate);
-        var client = new StatsAggregationService.StatsAggregationServiceClient(channel);
+        var client = new StatsAggregationService.StatsAggregationServiceClient(GrpcChannel.ForAddress("http://dprfinder.dse.svc.cluster.local:15721"));
         client.Synchronize(new SynchronizeRequest());
         worker.RunContinuously(30, options.CheckpointInterval);
         var results = new ReportResultsMessage();

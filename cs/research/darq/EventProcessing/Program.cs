@@ -35,7 +35,7 @@ public class Options
         HelpText = "identifier of the service to launch")]
     public int HostId { get; set; }
     
-    [Option('s', "speculative", Required = false, Default = true,
+    [Option('s', "speculative", Required = false, Default = false,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
@@ -52,8 +52,10 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        IEnvironment environment = new LocalDebugEnvironment();
+        // IEnvironment environment = new LocalDebugEnvironment();
         // var environment = new KubernetesLocalStorageEnvironment(true);
+        var environment = new KubernetesLocalStorageEnvironmentForRecovery();
+        
         switch (options.Type.Trim())
         {
             case "client":
@@ -71,12 +73,12 @@ public class Program
                 await LaunchDprFinder(options, environment);
                 break;
             case "generate":
-                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing\\workloads\\events-50k.txt")
+                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing\\workloads\\events-10k-long.txt")
                     .SetSearchTermRelevantProb(0.2)
-                    .SetTrendParameters(0.1, 50000, 25000)
+                    .SetTrendParameters(0.1, 5000, 2500)
                     .SetSearchTermLength(80)
-                    .SetThroughput(50000)
-                    .SetNumSearchTerms(50000 * 30)
+                    .SetThroughput(10000)
+                    .SetNumSearchTerms(10000 * 120)
                     .Generate();
                 break;
             default:
@@ -105,7 +107,7 @@ public class Program
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
         foreach (var line in processor.results)
-            streamWriter.WriteLine(line.Value.Item2 - line.Value.Item1);
+            streamWriter.WriteLine($"{line.Value.Item2}, {line.Value.Item2 - line.Value.Item1}");
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
         
@@ -148,7 +150,7 @@ public class Program
             {
                 Me = new DarqId(id),
                 MyDpr = dprId,
-                DprFinder = new GrpcDprFinder(GrpcChannel.ForAddress(environment.GetDprFinderConnString())),
+                DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
                 LogDevice = environment.GetDarqDevice(id),
                 LogCommitManager = environment.GetDarqCheckpointManager(id),
                 PageSize = 1L << 22,

@@ -34,6 +34,9 @@ spec:
             - "{{ .num }}"
             - "-i"
             - "{{ $.Values.checkpoint_interval }}"
+            {{- if $.Values.pubsub_speculative }}
+            - "-s"
+            {{- end }}
           image: tianyuli96/faster:latest
           name: pubsub{{ .num }}
           ports:

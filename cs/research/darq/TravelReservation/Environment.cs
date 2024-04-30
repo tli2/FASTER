@@ -52,12 +52,12 @@ public class LocalDebugEnvironment : IEnvironment
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\orchestrators{options.WorkerName}"), removeOutdated: false);
-        // result.PurgeAll();
+        result.PurgeAll();
         return result;
     }
 
     public IDevice GetOrchestratorDevice(Options options) =>
-        new ManagedLocalStorageDevice($"D:\\orchestator{options.WorkerName}.log");
+        new ManagedLocalStorageDevice($"D:\\orchestator{options.WorkerName}.log", deleteOnClose: true);
 
     public string GetServiceConnString(int index)
     {
@@ -74,12 +74,12 @@ public class LocalDebugEnvironment : IEnvironment
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\service{options.WorkerName}"), removeOutdated: false);
-        // result.PurgeAll();
+        result.PurgeAll();
         return result;
     }
 
     public IDevice GetServiceDevice(Options options) =>
-        new ManagedLocalStorageDevice($"D:\\service{options.WorkerName}.log");
+        new ManagedLocalStorageDevice($"D:\\service{options.WorkerName}.log", deleteOnClose: true);
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";
 
