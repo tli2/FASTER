@@ -76,14 +76,14 @@ public class SpPubSubProcessorClient
                     await handler.HandleAsync(stream.ResponseStream.Current, token);
                 }
             }
-            catch (DprSessionRolledBackException e)
-            {
-                // Just continue and restart the stream from where it's supposed to
-                continue;
-            }
             catch (TaskCanceledException e)
             {
                 break;
+            }
+            catch (Exception e)
+            {
+                // Just continue and restart the stream from where it's supposed to
+                continue;
             }
         }
     }

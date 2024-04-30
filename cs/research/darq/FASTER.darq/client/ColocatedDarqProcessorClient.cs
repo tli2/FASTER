@@ -131,6 +131,7 @@ namespace FASTER.darq
             session = new DprSession();
             capabilities = new Capabilities(this);
             processor.OnRestart(capabilities);
+            // TODO(Tianyu): Need to wait for DPR commit instead?
             iterator = darq.StartScan(speculative);
         }
         

@@ -102,6 +102,7 @@ public class SpPubSubServiceSettings
     public Dictionary<int, (int, string)> clusterMap;
     public Func<int, DprWorkerId, Darq> factory;
     public int hostId;
+    public bool speculative;
 }
 
 public class SpPubSubBackendService : BackgroundService
@@ -141,7 +142,7 @@ public class SpPubSubBackendService : BackgroundService
                 morselSize = 512,
                 batchSize = 64,
                 producerFactory = session => new PubsubDarqProducer(settings.clusterMap, session),
-                speculative = true
+                speculative = settings.speculative
             });
             refreshService.RegisterRefreshTask(result);
             topics[entry.Key] = result;
@@ -314,7 +315,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
 
 
     private unsafe bool TryReadOneEntry(Darq topic, long worldLine, DarqScanIterator scanner,
-        LightEpoch.EpochContext context, out Event ev)
+        LightEpoch.EpochContext context, out Event ev, bool speculative)
     {
         ev = default;
         var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
@@ -350,9 +351,16 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         }
         finally
         {
-            topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize), context);
-            if (ev != default)
-                ev.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+            if (speculative)
+            {
+                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize), context);
+                if (ev != default)
+                    ev.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
+            }
+            else
+            {
+                topic.EndAction();
+            }
         }
     }
 
@@ -369,7 +377,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         
         while (!context.CancellationToken.IsCancellationRequested)
         {
-            if (TryReadOneEntry(topic, worldLine, scanner, epochContext, out var ev))
+            if (TryReadOneEntry(topic, worldLine, scanner, epochContext, out var ev, request.Speculative))
             {
                 if (!request.Speculative && ev.NextOffset >= lastCommitted)
                 {

@@ -28,6 +28,7 @@ public class AggregateEventProcessor : SpPubSubEventHandler
     {
         if (ev.Data.Equals("termination"))
         {
+            Console.WriteLine("Termination signal received...");
             currentRequest.ConsumedMessageOffsets.Add(ev.Offset);
             currentRequest.OutMessages.Add(new OutMessage
             {

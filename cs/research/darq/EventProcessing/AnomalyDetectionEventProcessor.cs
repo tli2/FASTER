@@ -36,6 +36,7 @@ public class AnomalyDetectionEventProcessor : SpPubSubEventHandler
             {
                 if (ev.Data.Equals("termination"))
                 {
+                    Console.WriteLine("Termination signal received...");
                     currentStep.ConsumedMessageOffsets.Add(ev.Offset);
                     currentStep.OutMessages.Add(new OutMessage
                     {

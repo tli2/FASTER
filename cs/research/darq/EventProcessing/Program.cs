@@ -35,7 +35,7 @@ public class Options
         HelpText = "identifier of the service to launch")]
     public int HostId { get; set; }
     
-    [Option('s', "speculative", Required = false, Default = false,
+    [Option('s', "speculative", Required = false, Default = true,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
@@ -52,8 +52,8 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        // IEnvironment environment = new LocalDebugEnvironment();
-        var environment = new KubernetesLocalStorageEnvironment(true);
+        IEnvironment environment = new LocalDebugEnvironment();
+        // var environment = new KubernetesLocalStorageEnvironment(true);
         switch (options.Type.Trim())
         {
             case "client":
@@ -159,6 +159,7 @@ public class Program
                 FastCommitMode = true
             }, new RwLatchVersionScheme()),
             hostId = options.HostId,
+            speculative = options.Speculative
         });
         builder.Services.AddSingleton<SpPubSubBackendService>();
         

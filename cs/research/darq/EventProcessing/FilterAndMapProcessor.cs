@@ -24,6 +24,7 @@ public class FilterAndMapEventProcessor : SpPubSubEventHandler
         Debug.Assert(ev.Type == pubsub.DarqMessageType.In);
         if (ev.Data.Equals("termination"))
         {
+            Console.WriteLine("Termination signal received...");
             // Forward termination signal
             numBatchedSteps++;
             currentBatch.ConsumedMessageOffsets.Add(ev.Offset);

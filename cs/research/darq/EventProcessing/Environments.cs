@@ -30,7 +30,7 @@ public class LocalDebugEnvironment : IEnvironment
         { 0, (0, "http://127.0.0.1:15721") },
         { 1, (1, "http://127.0.0.1:15722") },
         { 2, (0, "http://127.0.0.1:15721") },
-        { 3, (1, "http://127.0.0.1:15722") }
+        { 3, (0, "http://127.0.0.1:15721") }
     };
 
     public Dictionary<int, (int, string)> GetClusterMap()
@@ -49,13 +49,13 @@ public class LocalDebugEnvironment : IEnvironment
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\darq{topicId}"), removeOutdated: false);
-        result.PurgeAll();
+        // result.PurgeAll();
         return result;
     }
 
     public IDevice GetDarqDevice(int topicId)
     {
-        return new ManagedLocalStorageDevice($"D:\\darq{topicId}.log", deleteOnClose: true);
+        return new ManagedLocalStorageDevice($"D:\\darq{topicId}.log", deleteOnClose: false);
     }
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";

@@ -31,7 +31,7 @@ public class SearchListLatencyMeasurementProcessor : SpPubSubEventHandler
         var split = ev.Data.Split(":");
         var timestamp = long.Parse(split[2]);
         var endTime = stopwatch.ElapsedMilliseconds;
-        results[ev.Data] = (timestamp, endTime);
+        results.TryAdd(ev.Data, (timestamp, endTime));
         // Console.WriteLine($"Received {ev.Data}, {timestamp}, {endTime}");
     }
     

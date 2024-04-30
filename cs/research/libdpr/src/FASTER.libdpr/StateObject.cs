@@ -229,14 +229,15 @@ namespace FASTER.libdpr
 
             if (version > Version()) return ActuallyRestore(newWorldLine, version);
 
-            for (var i = version + 1; i < Version(); i++)
+            for (var i = version + 1; i <= Version(); i++)
             {
                 if (!versions.TryGetValue(i, out var deps)) continue;
                 foreach (var dep in deps)
-                    if (dep.Version > options.DprFinder.SafeVersion(dep.DprWorkerId))
+                    if (dep.DprWorkerId != Me() && dep.Version > options.DprFinder.SafeVersion(dep.DprWorkerId))
                         return ActuallyRestore(newWorldLine, version);
             }
-                 
+
+            Utility.MonotonicUpdate(ref worldLine, newWorldLine, out _);
             return Task.CompletedTask;
         }
 
