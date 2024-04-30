@@ -71,8 +71,9 @@ public class SpPubSubProcessorClient
                     if (!task.IsCompleted)
                     {
                         await handler.HandleAwait();
-                        if (!await task) break;
+                        await task;
                     }
+                    if (!task.Result) break;
                     await handler.HandleAsync(stream.ResponseStream.Current, token);
                 }
             }

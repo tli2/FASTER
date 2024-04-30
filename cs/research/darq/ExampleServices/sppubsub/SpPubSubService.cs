@@ -369,7 +369,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
     {
         var topic = await backend.GetTopic(request.TopicId);
         var worldLine = topic.WorldLine();
-        var scanner = topic.StartScan(request.Speculative);
+        var scanner = topic.StartScan();
 
         // TODO(Tianyu): Pick the appropriate context 
         LightEpoch.EpochContext epochContext = null;

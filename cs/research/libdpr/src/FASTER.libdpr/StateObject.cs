@@ -106,7 +106,7 @@ namespace FASTER.libdpr
                     {
                         so.versions.TryRemove(fromState.Version, out var deps);
                         var workerVersion = new WorkerVersion(so.options.Me, fromState.Version);
-                        so.options.DprFinder?.ReportNewPersistentVersion(so.worldLine, workerVersion, deps);
+                        so.options.DprFinder.ReportNewPersistentVersion(so.worldLine, workerVersion, deps);
                         so.dependencySetPool.Return(deps);
                         checkpointComplete = true;
                         so.versionScheme.SignalStepAvailable();
@@ -180,65 +180,82 @@ namespace FASTER.libdpr
 
         public bool ConnectedToCluster() => connected;
 
-        private Task ActuallyRestore(long newWorldLine, long version)
+        private void ActuallyRestore(long newWorldLine, long requestedVersion, long vOld, long vNew)
         {
-            var tcs = new TaskCompletionSource<object>();
-
-            versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
+            // Restore underlying state object state
+            RestoreCheckpoint(requestedVersion, out var metadata);
+            // Use the restored metadata to restore attachments state
+            unsafe
             {
-                // Restore underlying state object state
-                RestoreCheckpoint(version, out var metadata);
-                // Use the restored metadata to restore attachments state
-                unsafe
+                fixed (byte* src = metadata)
                 {
-                    fixed (byte* src = metadata)
+                    var head = src +
+                               SerializationUtil.DeserializeCheckpointMetadata(metadata, out _, out _, out _);
+                    var numAttachments = *(int*)head;
+                    head += sizeof(int);
+                    Debug.Assert(numAttachments == attachments.Count,
+                        "recovered checkpoint contains a different number of attachments!");
+                    foreach (var attachment in attachments)
                     {
-                        var head = src +
-                                   SerializationUtil.DeserializeCheckpointMetadata(metadata, out _, out _, out _);
-                        var numAttachments = *(int*)head;
+                        var size = *(int*)head;
                         head += sizeof(int);
-                        Debug.Assert(numAttachments == attachments.Count,
-                            "recovered checkpoint contains a different number of attachments!");
-                        foreach (var attachment in attachments)
-                        {
-                            var size = *(int*)head;
-                            head += sizeof(int);
-                            attachment.RecoverFrom(new Span<byte>(head, size));
-                            head += size;
-                        }
+                        attachment.RecoverFrom(new Span<byte>(head, size));
+                        head += size;
                     }
                 }
-
-                // Clear any leftover state and signal complete
-                versions.Clear();
-                var deps = dependencySetPool.Checkout();
-                if (vOld != 0)
-                    deps.Update(options.Me, vOld);
-                var success = versions.TryAdd(vNew, deps);
-                Debug.Assert(success);
-                tcs.SetResult(null);
-                worldLine = newWorldLine;
-            }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
-            return tcs.Task;
-        }
-
-        private Task BeginRestore(long newWorldLine, long version)
-        {
-            // Restoration to this particular worldline has already been completed
-            if (worldLine >= newWorldLine) return Task.CompletedTask;
-
-            if (version > Version()) return ActuallyRestore(newWorldLine, version);
-
-            for (var i = version + 1; i <= Version(); i++)
-            {
-                if (!versions.TryGetValue(i, out var deps)) continue;
-                foreach (var dep in deps)
-                    if (dep.DprWorkerId != Me() && dep.Version > options.DprFinder.SafeVersion(dep.DprWorkerId))
-                        return ActuallyRestore(newWorldLine, version);
             }
 
-            Utility.MonotonicUpdate(ref worldLine, newWorldLine, out _);
-            return Task.CompletedTask;
+            // Clear any leftover state and signal complete
+            versions.Clear();
+            var deps = dependencySetPool.Checkout();
+            if (vOld != 0)
+                deps.Update(options.Me, vOld);
+            var success = versions.TryAdd(vNew, deps);
+            Debug.Assert(success);
+            worldLine = newWorldLine;
+        }
+
+        private void BeginRestore(long newWorldLine, long version)
+        {
+            // Serially restore to avoid triggering multiple restores for one failure from many threads
+            lock (this)
+            {
+                // Restoration to this particular worldline has already been completed
+                if (worldLine >= newWorldLine) return;
+                if (versionScheme.CurrentState().Phase != VersionSchemeState.REST) return;
+
+                versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
+                {
+                    if (version > Version())
+                    {
+                        ActuallyRestore(newWorldLine, version, vOld, vNew);
+                    }
+                    else
+                    {
+                        for (var i = version + 1; i <= Version(); i++)
+                        {
+                            if (!versions.TryGetValue(i, out var deps)) continue;
+                            foreach (var dep in deps)
+                                if (dep.DprWorkerId != Me() &&
+                                    dep.Version > options.DprFinder.SafeVersion(dep.DprWorkerId))
+                                {
+                                    ActuallyRestore(newWorldLine, version, vOld, vNew);
+                                    return;
+                                }
+                        }
+
+                        // Clear any leftover state and signal complete
+                        versions.Clear();
+                        var newDeps = dependencySetPool.Checkout();
+                        if (vOld != 0)
+                            newDeps.Update(options.Me, vOld);
+                        var success = versions.TryAdd(vNew, newDeps);
+                        Debug.Assert(success);
+                        worldLine = newWorldLine;
+                    }
+
+                }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
+            }
         }
 
         internal int MetadataSize(ReadOnlySpan<byte> deps)
@@ -273,24 +290,17 @@ namespace FASTER.libdpr
             if (connected)
                 throw new InvalidOperationException("Cannot connect to a cluster twice");
             long versionToRecover = 0;
-            if (options.DprFinder != null)
-            {
+
                 versionToRecover = options.DprFinder.AddWorker(options.Me, GetUnprunedVersions);
-            }
-            else
-            {
-                foreach (var v in GetUnprunedVersions())
-                {
-                    SerializationUtil.DeserializeCheckpointMetadata(v.Span, out _, out var wv, out _);
-                    if (wv.Version > versionToRecover)
-                        versionToRecover = wv.Version;
-                }
-            }
 
             // This worker is recovering from some failure and we need to load said checkpoint
             restored = versionToRecover != 0;
             if (restored)
-                BeginRestore(options.DprFinder?.SystemWorldLine() ?? 1, versionToRecover).GetAwaiter().GetResult();
+                while (worldLine != options.DprFinder.SystemWorldLine())
+                {
+                    BeginRestore(options.DprFinder.SystemWorldLine(), versionToRecover);
+                    Thread.Yield();
+                }
             else
             {
                 var deps = dependencySetPool.Checkout();
@@ -298,7 +308,7 @@ namespace FASTER.libdpr
                 Debug.Assert(success);
             }
 
-            options.DprFinder?.Refresh(options.Me, GetUnprunedVersions);
+            options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
             connected = true;
         }
 
@@ -315,7 +325,7 @@ namespace FASTER.libdpr
         /// <returns> Get the largest version number that is considered committed (will be recovered to) of this DPR Worker</returns>
         public long CommittedVersion()
         {
-            return options.DprFinder?.SafeVersion(Me()) ?? Version() - 2;
+            return options.DprFinder.SafeVersion(Me());
         }
 
         public void Refresh()
@@ -323,15 +333,14 @@ namespace FASTER.libdpr
             var currentTime = sw.ElapsedMilliseconds;
             var lastCommitted = CommittedVersion();
 
-            if (options.DprFinder != null && lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
+            if (lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
             {
                 // A false return indicates that the DPR finder does not have a cut available, this is usually due to
                 // restart from crash, at which point we should resend the graph 
                 options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
                 core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
                 if (worldLine != options.DprFinder.SystemWorldLine())
-                    BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me))
-                        .GetAwaiter().GetResult();
+                    BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
             }
 
             if (lastCheckpointMilli + options.CheckpointPeriodMilli <= currentTime)
@@ -393,9 +402,6 @@ namespace FASTER.libdpr
         public async ValueTask<bool> TryReceiveAndStartActionAsync(byte[] headerBytes,
             LightEpoch.EpochContext context = null)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-
             var (wl, v) = GetWorldLineAndVersion(headerBytes);
 
             // Apply the commit ordering rule, taking checkpoints if necessary.
@@ -417,11 +423,16 @@ namespace FASTER.libdpr
             versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
             // so client operation is not lost in a rollback that the client has already observed.
-            while (wl > worldLine)
+            if (wl > worldLine)
             {
                 versionScheme.Leave(context);
-                // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                await rateLimiter.WaitAsync();
+                while (wl > worldLine)
+                {
+                    BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                    Thread.Yield();
+                }
+                rateLimiter.Release();
                 versionScheme.Enter(context);
             }
 
@@ -439,9 +450,6 @@ namespace FASTER.libdpr
         public async ValueTask<bool> TryReceiveAndStartActionAsync(ByteString headerBytes,
             LightEpoch.EpochContext context = null)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-
             var (wl, v) = GetWorldLineAndVersion(headerBytes.Span);
 
             if (v > versionScheme.CurrentState().Version)
@@ -462,14 +470,18 @@ namespace FASTER.libdpr
             versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
             // so client operation is not lost in a rollback that the client has already observed.
-            while (wl > worldLine)
+            if (wl > worldLine)
             {
                 versionScheme.Leave(context);
-                // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                await rateLimiter.WaitAsync();
+                while (wl > worldLine)
+                {
+                    BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                    Thread.Yield();
+                }
+                rateLimiter.Release();
                 versionScheme.Enter(context);
             }
-
             // If the worker world-line is newer, the request must be dropped. 
             if (wl != 0 && wl < worldLine)
             {
@@ -483,30 +495,37 @@ namespace FASTER.libdpr
 
         public bool TryReceiveAndStartAction(ReadOnlySpan<byte> headerBytes, LightEpoch.EpochContext context = null)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-
             var (wl, v) = GetWorldLineAndVersion(headerBytes);
 
             // Apply the commit ordering rule, taking checkpoints if necessary.
-            while (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version)
             {
-                // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                BeginCheckpoint(largestRequestedCheckpointVersion);
-                Thread.Yield();
+                rateLimiter.Wait();
+                while (v > versionScheme.CurrentState().Version)
+                {
+                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
+                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
+                    BeginCheckpoint(largestRequestedCheckpointVersion);
+                    Thread.Yield();
+                }
+
+                rateLimiter.Release();
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
             versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
             // so client operation is not lost in a rollback that the client has already observed.
-            while (wl > worldLine)
+            if (wl > worldLine)
             {
                 versionScheme.Leave(context);
-                // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                BeginRestore(wl, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
-                Thread.Yield();
+                rateLimiter.Wait();
+                while (wl > worldLine)
+                {
+                    BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                    Thread.Yield();
+                }
+                rateLimiter.Release();
                 versionScheme.Enter(context);
             }
 
@@ -523,14 +542,12 @@ namespace FASTER.libdpr
 
         public unsafe bool TakeOnDependencyAndStartAction(DprSession session, LightEpoch.EpochContext context = null)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-
             var wl = session.WorldLine;
             var v = session.version;
 
             if (v > versionScheme.CurrentState().Version)
             {
+                rateLimiter.Wait();
                 while (v > versionScheme.CurrentState().Version)
                 {
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
@@ -538,17 +555,24 @@ namespace FASTER.libdpr
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
+
+                rateLimiter.Release();
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
             versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
             // so client operation is not lost in a rollback that the client has already observed.
-            while (wl > worldLine)
+            if (wl > worldLine)
             {
                 versionScheme.Leave(context);
-                // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                BeginRestore(wl, options.DprFinder.SafeVersion(options.Me)).GetAwaiter().GetResult();
+                rateLimiter.Wait();
+                while (wl > worldLine)
+                {
+                    BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                    Thread.Yield();
+                }
+                rateLimiter.Release();
                 versionScheme.Enter(context);
             }
 
@@ -571,9 +595,6 @@ namespace FASTER.libdpr
         public async ValueTask<bool> TakeOnDependencyAndStartActionAsync(DprSession session,
             LightEpoch.EpochContext context = null)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-
             var wl = session.WorldLine;
             var v = session.version;
 
@@ -595,11 +616,16 @@ namespace FASTER.libdpr
             versionScheme.Enter(context);
             // If the worker world-line is behind, wait for worker to recover up to the same point as the client,
             // so client operation is not lost in a rollback that the client has already observed.
-            while (wl > worldLine)
+            if (wl > worldLine)
             {
                 versionScheme.Leave(context);
-                // TODO(Tianyu): Should provide version that does not rollback on the spot?
-                await BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                await rateLimiter.WaitAsync();
+                while (wl > worldLine)
+                {
+                    BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
+                    Thread.Yield();
+                }
+                rateLimiter.Release();
                 versionScheme.Enter(context);
             }
 
@@ -633,9 +659,6 @@ namespace FASTER.libdpr
 
         public int ProduceTagAndEndAction(Span<byte> outputHeaderBytes, LightEpoch.EpochContext context = null)
         {
-            // Should not be interacting with DPR-related things if speculation is disabled
-            if (options.DprFinder == null) throw new InvalidOperationException();
-
             if (outputHeaderBytes.Length < DprMessageHeader.FixedLenSize)
                 return -DprMessageHeader.FixedLenSize;
 
@@ -687,16 +710,6 @@ namespace FASTER.libdpr
         {
             core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
             BeginCheckpoint(targetVersion);
-        }
-
-        public void ForceRefresh()
-        {
-            if (options.DprFinder == null) return;
-            options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
-            core.Utility.MonotonicUpdate(ref lastRefreshMilli, sw.ElapsedMilliseconds, out _);
-            if (worldLine != options.DprFinder.SystemWorldLine())
-                BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me))
-                    .GetAwaiter().GetResult();
         }
 
         /// <summary>

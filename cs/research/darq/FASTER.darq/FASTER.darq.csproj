@@ -19,10 +19,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Protobuf Include="gRPC\proto\darq.proto" GrpcServices="Server,Client" />
-    </ItemGroup>
-
-    <ItemGroup>
       <ProjectReference Include="..\..\..\remote\src\FASTER.server\FASTER.server.csproj" />
       <ProjectReference Include="..\..\libdpr\src\FASTER.libdpr\FASTER.libdpr.csproj" />
     </ItemGroup>

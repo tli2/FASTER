@@ -166,6 +166,7 @@ namespace FASTER.libdpr
                 Interlocked.CompareExchange(ref worldLine, wl, 0);
             if (worldLine < wl) throw new DprSessionRolledBackException(wl);
             if (worldLine > wl) return false;
+            core.Utility.MonotonicUpdate(ref this.version, version, out _);
             deps.Update(so.Me(), version);
             return true;
         }
@@ -173,7 +174,7 @@ namespace FASTER.libdpr
 
         // TODO(Tianyu): Need to find a way for long-running sessions to prune its dependencies
         // Not safe to invoke concurrently with other methods on this session
-        public async Task SpeculationBarrier(IDprFinder dprFinder, bool autoRefresh = false)
+        public Task SpeculationBarrier(IDprFinder dprFinder, bool autoRefresh = false)
         {
             while (true)
             {
@@ -188,11 +189,11 @@ namespace FASTER.libdpr
                 if (deps.All(wv => dprFinder.SafeVersion(wv.DprWorkerId) >= wv.Version))
                 {
                     deps.UnsafeClear();
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 // TODO(Tianyu): Fix busy wait
-                await Task.Yield();
+                Thread.Yield();
             }
         }
     }

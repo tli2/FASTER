@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using FASTER.core;
+using FASTER.darq;
 
 namespace FASTER.libdpr
 {
@@ -17,9 +18,9 @@ namespace FASTER.libdpr
         private GCHandle? handle = null;
         private bool hideRecoveryMessages;
 
-        internal DarqScanIterator(FasterLog log, long replayEnd, bool speculative, bool hideRecoveryMessages = true)
+        internal DarqScanIterator(FasterLog log, long replayEnd, bool hideRecoveryMessages = true)
         {
-            iterator = log.Scan(0, long.MaxValue, scanUncommitted: speculative);
+            iterator = log.Scan(0, long.MaxValue, scanUncommitted: true);
             recoveryMessages = new Queue<(long, long, byte[])>();
             replayMessages = new Dictionary<long, long>();
             this.replayEnd = replayEnd;

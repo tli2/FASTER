@@ -21,6 +21,7 @@ namespace FASTER.darq
         private Capabilities capabilities;
 
         private bool speculative;
+        private long lastSyncedTail = 0;
 
         private enum ProcessResult
         {
@@ -50,7 +51,11 @@ namespace FASTER.darq
                 return status;
             }
 
-            public DprSession GetDprSession() => session;
+            public DprSession GetDprSession()
+            {
+                if (!parent.speculative) throw new InvalidOperationException();
+                return session;
+            }
         }
 
         /// <summary>
@@ -105,7 +110,16 @@ namespace FASTER.darq
                 // Not a message we need to worry about
                 if (m == null) return ProcessResult.CONTINUE;
 
-                session.DependOn(darq);
+                if (m.GetNextLsn() >= lastSyncedTail)
+                {
+                    darq.StartLocalAction();
+                    lastSyncedTail = darq.Tail;
+                    session.DependOn(darq);
+                    darq.EndAction();
+                    if (!speculative)
+                        session.SpeculationBarrier(darq.GetDprFinder()).GetAwaiter().GetResult();
+                }
+                
                 switch (m.GetMessageType())
                 {
                     case DarqMessageType.IN:
@@ -131,8 +145,7 @@ namespace FASTER.darq
             session = new DprSession();
             capabilities = new Capabilities(this);
             processor.OnRestart(capabilities);
-            // TODO(Tianyu): Need to wait for DPR commit instead?
-            iterator = darq.StartScan(speculative);
+            iterator = darq.StartScan();
         }
         
         /// <inheritdoc/>

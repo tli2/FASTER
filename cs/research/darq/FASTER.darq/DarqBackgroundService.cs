@@ -38,6 +38,8 @@ namespace FASTER.client
         private SimpleObjectPool<DarqMessage> messagePool;
         private ILogger<DarqMaintenanceBackgroundService> logger;
 
+        private long lastSyncedTail = 0;
+
         /// <summary>
         /// Constructs a new ColocatedDarqProcessorClient
         /// </summary>
@@ -55,10 +57,11 @@ namespace FASTER.client
         
         private void Reset()
         {
+            lastSyncedTail = darq.Tail;
             session = darq.DetachFromWorker();
-            currentProducerClient = settings.producerFactory?.Invoke(settings.speculative ? new DprSession() : null);
+            currentProducerClient = settings.producerFactory?.Invoke(settings.speculative ? session : null);
             completionTracker = new DarqCompletionTracker();
-            iterator = darq.StartBackgroundScan(settings.speculative);
+            iterator = darq.StartBackgroundScan();
         }
 
         public long ProcessingLag => darq.log.TailAddress - processedUpTo;
@@ -77,7 +80,7 @@ namespace FASTER.client
             if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
                     out var lsn, out processedUpTo, out var type))
                 return false;
-
+            
             completionTracker.AddEntry(lsn, processedUpTo);
             // Short circuit without looking at the entry -- no need to process in background
             if (type != DarqMessageType.OUT && type != DarqMessageType.COMPLETION)
@@ -123,6 +126,8 @@ namespace FASTER.client
         private bool TryConsumeNext()
         {
             var hasNext = TryReadEntry(out var m);
+
+
             // Don't go through the normal receive code path for performance
             if (!darq.IsCompatible(session))
             {
@@ -135,6 +140,16 @@ namespace FASTER.client
             if (!hasNext) return false;
             // Not a message we care about
             if (m == null) return true;
+
+            if (m.GetNextLsn() >= lastSyncedTail)
+            {
+                darq.StartLocalAction();
+                lastSyncedTail = darq.Tail;
+                session.DependOn(darq);
+                darq.EndAction();
+                if (!settings.speculative)
+                    session.SpeculationBarrier(darq.GetDprFinder()).GetAwaiter().GetResult();
+            }
 
             switch (m.GetMessageType())
             {
@@ -167,9 +182,11 @@ namespace FASTER.client
             if (completionTracker.GetTruncateHead() > darq.log.BeginAddress)
             {
                 // logger.LogInformation($"Truncating log until {completionTracker.GetTruncateHead()}");
-                darq.StartLocalAction();
-                darq.TruncateUntil(completionTracker.GetTruncateHead());
-                darq.EndAction();
+                if (darq.TakeOnDependencyAndStartAction(session))
+                {
+                    darq.TruncateUntil(completionTracker.GetTruncateHead());
+                    darq.EndAction();
+                }
             }
 
             return true;
