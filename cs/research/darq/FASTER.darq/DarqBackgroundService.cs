@@ -14,9 +14,6 @@ namespace FASTER.client
         // Processing chunk size before the task yields
         public int morselSize = 512;
 
-        // batch size for background sends
-        public int batchSize = 64;
-
         public bool speculative = false;
 
         public Func<DprSession, IDarqProducer> producerFactory;
@@ -114,12 +111,12 @@ namespace FASTER.client
                 currentProducerClient.EnqueueMessageWithCallback(dest, toSend,
                     _ => { completionTrackerLocal.RemoveEntry(lsn); }, darq.Me().guid, lsn);
             }
-
-            if (++numBatched == settings.batchSize)
-            {
-                numBatched = 0;
-                return new ValueTask(currentProducerClient.ForceFlush());
-            }
+            
+            // if (++numBatched == settings.batchSize)
+            // {
+            //     numBatched = 0;
+            //     return new ValueTask(currentProducerClient.ForceFlush());
+            // }
 
             return ValueTask.CompletedTask;
         }

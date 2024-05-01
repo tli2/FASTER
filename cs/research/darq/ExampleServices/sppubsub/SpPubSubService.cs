@@ -137,8 +137,7 @@ public class SpPubSubBackendService : BackgroundService
             result.ConnectToCluster(out _);
             maintenanceService.RegisterMaintenanceTask(result, new DarqMaintenanceBackgroundServiceSettings
             {
-                morselSize = 512,
-                batchSize = 64,
+                morselSize = 1024,
                 producerFactory = session => new PubsubDarqProducer(settings.clusterMap, session),
                 speculative = settings.speculative
             });

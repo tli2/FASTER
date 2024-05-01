@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
 using CommandLine;
 using FASTER.core;
 using FASTER.libdpr;
@@ -8,9 +9,9 @@ namespace microbench;
 
 public class Options
 {
-    [Option('p', "detach-probability", Required = false, Default = 0.0,
-        HelpText = "probably of detach-merge in the workload. The remaining operations will be actions")]
-    public double DetachProbability { get; set; }
+    [Option('t', "type", Required = true,
+        HelpText = "Type of benchmark: local (0), receive-send (1), detach-merge (2)")]
+    public int Type { get; set; }
     
     [Option('n', "num-threads", Required = false, Default = 5, 
         HelpText = "number of threads doing work")]
@@ -77,10 +78,7 @@ public class Program
         var threads = new List<Thread>();
         for (var i = 0; i < options.NumThreads; i++)
         {
-            var workload = new byte[options.NumOps];
-            for (var j = 0; j < options.NumOps; j++)
-                workload[j] = (byte)(random.NextDouble() < options.DetachProbability ? 1 : 0);
-            threads.Add(new Thread(() => RunBenchmarkThread(tested, workload)));
+            threads.Add(new Thread(() => RunBenchmarkThread(tested, options.NumOps, options.Type)));
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -93,21 +91,39 @@ public class Program
         backgroundTask.StopAsync(default);
     }
 
-    public static void RunBenchmarkThread(TestStateObject so, byte[] workload)
+    public static unsafe void RunBenchmarkThread(TestStateObject so, int numOps, int mode)
     {
-        DprSession prevSession = null;
-        foreach (var op in workload)
+        var headers = new List<byte[]>();
+        if (mode == 1)
         {
-            if (prevSession != null)
-                so.TryMergeAndStartAction(prevSession);
-            else
-                so.StartLocalAction();
-            switch (op)
+            var random = new Random();
+            for (var i = 0; i < numOps; i++)
+            {
+                headers.Add(new byte[DprMessageHeader.FixedLenSize]);
+                ref var header =
+                    ref MemoryMarshal.GetReference(MemoryMarshal.Cast<byte, DprMessageHeader>(headers[i]));
+                header.WorldLine = 0;
+                header.Version = 1;
+                header.SrcWorkerId = new DprWorkerId(random.Next() % LightDependencySet.MaxClusterSize);
+            }
+        }
+
+        var prevSession = so.DetachFromWorker();
+        var headerBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
+        for (var i = 0; i < numOps; i++)
+        {
+            switch (mode)
             {
                 case 0:
+                    so.StartLocalAction();
                     so.EndAction();
                     break;
                 case 1:
+                    so.TryReceiveAndStartAction(headers[i]);
+                    so.ProduceTagAndEndAction(new Span<byte>(headerBytes, 1 << 10));
+                    break;
+                case 2:
+                    so.TryMergeAndStartAction(prevSession);
                     prevSession = so.DetachFromWorkerAndPauseAction();
                     break;
                 default:

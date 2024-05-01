@@ -185,7 +185,6 @@ public class Program
         builder.Services.AddSingleton(new DarqMaintenanceBackgroundServiceSettings
         {
             morselSize = 512,
-            batchSize = 16,
             // Workflow orchestrator DARQs never produce out messages
             producerFactory = null,
             speculative = true
