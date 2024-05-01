@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using dse.services;
@@ -5,6 +6,7 @@ using FASTER.libdpr;
 using MathNet.Numerics.Distributions;
 using Newtonsoft.Json;
 using pubsub;
+using StepRequest = FASTER.libdpr.StepRequest;
 
 namespace EventProcessing;
 
@@ -169,7 +171,7 @@ public class SearchListDataLoader
 {
     private string filename;
     private List<string> rawJsons = new();
-    private List<SearchListJson> parsedJsons = new();
+    private List<long> timestamps = new();
     private SpPubSubServiceClient client;
     private int topicName;
     private Stopwatch stopwatch;
@@ -186,30 +188,114 @@ public class SearchListDataLoader
     {
         Console.WriteLine("Started loading json messages from file");
         rawJsons = File.ReadLines(filename).ToList();
-        parsedJsons = rawJsons.Select(JsonConvert.DeserializeObject<SearchListJson>).ToList()!;
-        Console.WriteLine($"Loading of {parsedJsons.Count} messages complete");
-        return parsedJsons.Count;
+        timestamps = rawJsons.Select(s => JsonConvert.DeserializeObject<SearchListJson>(s).Timestamp).ToList()!;
+        Console.WriteLine($"Loading of {timestamps.Count} messages complete");
+        return timestamps.Count;
     }
 
-    public async Task Run()
+    public async Task SequentialIssue()
     {
-        var semaphore = new SemaphoreSlim(128, 128);
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
             ProducerId = 0,
             TopicId = topicName,
         };
-        for (var i = 0; i < parsedJsons.Count; i++)
+        for (var i = 0; i < timestamps.Count; i++)
         {
-            var json = parsedJsons[i];
+            var time = timestamps[i];
             var currentTime = stopwatch.ElapsedMilliseconds;
-            while (currentTime < json.Timestamp)
+            while (currentTime < time)
+            {
+                if (batched.Events.Count != 0)
+                {
+                    while (true)
+                    {
+                        try
+                        {
+                            await client.EnqueueEventsAsync(batched);
+                            break;
+                        }
+                        catch (Exception e)
+                        {
+                            // Wait a bit so failures can recover
+                            await Task.Delay(10);
+                        }
+                    }
+                    batched = new EnqueueRequest
+                    {
+                        ProducerId = 0,
+                        TopicId = topicName,
+                    };
+                }
+                Thread.Yield();
+                currentTime = stopwatch.ElapsedMilliseconds;
+            }
+            batched.SequenceNum = i;
+            batched.Events.Add(rawJsons[i]);
+            if (batched.Events.Count >= 1024)
+            {
+                while (true)
+                {
+                    try
+                    {
+                        await client.EnqueueEventsAsync(batched);
+                        break;
+                    }
+                    catch (Exception e)
+                    {
+                        // Wait a bit so failures can recover
+                        await Task.Delay(10);
+                    }
+                }
+                batched = new EnqueueRequest
+                {
+                    ProducerId = 0,
+                    TopicId = topicName,
+                };
+            }
+        }
+        var termination = new EnqueueRequest
+        {
+            ProducerId = 0,
+            SequenceNum = timestamps.Count,
+            TopicId = topicName,
+        };
+        termination.Events.Add($"termination");
+        while (true)
+        {
+            try
+            {
+                await client.EnqueueEventsAsync(termination);
+                break;
+            }
+            catch (Exception e)
+            {
+                // Wait a bit so failures can recover
+                await Task.Delay(10);
+            }
+        }
+        Console.WriteLine("########## Finished publishing messages");
+    }
+
+    public async Task ParallelIssue(int degree = 128)
+    {
+        var semaphore = new SemaphoreSlim(degree, degree);
+        stopwatch.Start();
+        var batched = new EnqueueRequest
+        {
+            ProducerId = 0,
+            TopicId = topicName,
+        };
+        for (var i = 0; i < timestamps.Count; i++)
+        {
+            var time = timestamps[i];
+            var currentTime = stopwatch.ElapsedMilliseconds;
+            while (currentTime < time)
             {
                 if (batched.Events.Count != 0)
                 {
                     var batched1 = batched;
-                    var now = stopwatch.ElapsedMilliseconds;
                     await semaphore.WaitAsync();
                     _ = Task.Run(async () =>
                     {
@@ -224,7 +310,7 @@ public class SearchListDataLoader
                             catch (Exception e)
                             {
                                 // Wait a bit so failures can recover
-                                await Task.Delay(100);
+                                await Task.Delay(10);
                             }
                         }
                     });
@@ -257,7 +343,7 @@ public class SearchListDataLoader
                         catch (Exception e)
                         {
                             // Wait a bit so failures can recover
-                            await Task.Delay(100);
+                            await Task.Delay(10);
                         }
                     }
                 });
@@ -271,7 +357,7 @@ public class SearchListDataLoader
         var termination = new EnqueueRequest
         {
             ProducerId = 0,
-            SequenceNum = parsedJsons.Count,
+            SequenceNum = timestamps.Count,
             TopicId = topicName,
         };
         termination.Events.Add($"termination");
@@ -285,7 +371,7 @@ public class SearchListDataLoader
             catch (Exception e)
             {
                 // Wait a bit so failures can recover
-                await Task.Delay(100);
+                await Task.Delay(10);
             }
         }
         Console.WriteLine("########## Finished publishing messages");
