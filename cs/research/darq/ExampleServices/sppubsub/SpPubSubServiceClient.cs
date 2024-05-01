@@ -61,7 +61,7 @@ public class SpPubSubServiceClient
             return result;
         throw new TaskCanceledException();
     }
-
+    
     public async Task<long> RegisterProcessor(int topicId)
     {
         var channel = await GetOrCreateConnection(topicId);

@@ -16,9 +16,9 @@ namespace FASTER.client
 
         // batch size for background sends
         public int batchSize = 64;
-        
+
         public bool speculative = false;
-        
+
         public Func<DprSession, IDarqProducer> producerFactory;
     }
 
@@ -54,7 +54,7 @@ namespace FASTER.client
             this.logger = logger;
             Reset();
         }
-        
+
         private void Reset()
         {
             lastSyncedTail = darq.Tail;
@@ -80,7 +80,7 @@ namespace FASTER.client
             if (!iterator.UnsafeGetNext(out var entry, out var entryLength,
                     out var lsn, out processedUpTo, out var type))
                 return false;
-            
+
             completionTracker.AddEntry(lsn, processedUpTo);
             // Short circuit without looking at the entry -- no need to process in background
             if (type != DarqMessageType.OUT && type != DarqMessageType.COMPLETION)
@@ -99,7 +99,7 @@ namespace FASTER.client
         }
 
         // TODO(Tianyu): Create variants that allow DARQ instances to talk with each other through more than just the FASTER wire protocol
-        private unsafe void SendMessage(DarqMessage m)
+        private unsafe ValueTask SendMessage(DarqMessage m)
         {
             Debug.Assert(m.GetMessageType() == DarqMessageType.OUT);
             var body = m.GetMessageBody();
@@ -113,17 +113,34 @@ namespace FASTER.client
                 // TODO(Tianyu): Make ack more efficient through batching
                 currentProducerClient.EnqueueMessageWithCallback(dest, toSend,
                     _ => { completionTrackerLocal.RemoveEntry(lsn); }, darq.Me().guid, lsn);
-                if (++numBatched == settings.batchSize)
+            }
+
+            if (++numBatched == settings.batchSize)
+            {
+                numBatched = 0;
+                return new ValueTask(currentProducerClient.ForceFlush());
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        private void UpdateCompletionTracker(DarqMessage m)
+        {
+            var body = m.GetMessageBody();
+            unsafe
+            {
+                fixed (byte* h = body)
                 {
-                    numBatched = 0;
-                    currentProducerClient.ForceFlush();
+                    for (var completed = (long*)h; completed < h + body.Length; completed++)
+                        if (*completed >= darq.Head)
+                            completionTracker.RemoveEntry(*completed);
                 }
             }
 
-            m.Dispose();
+            completionTracker.RemoveEntry(m.GetLsn());
         }
 
-        private bool TryConsumeNext()
+        private async ValueTask<bool> TryConsumeNext()
         {
             var hasNext = TryReadEntry(out var m);
 
@@ -153,37 +170,27 @@ namespace FASTER.client
                 {
                     darq.EndAction();
                 }
+
                 if (!settings.speculative)
-                    session.SpeculationBarrier(darq.GetDprFinder()).GetAwaiter().GetResult();
+                    await session.SpeculationBarrier(darq.GetDprFinder());
             }
 
             switch (m.GetMessageType())
             {
                 case DarqMessageType.OUT:
                 {
-                    SendMessage(m);
+                    await SendMessage(m);
                     break;
                 }
                 case DarqMessageType.COMPLETION:
                 {
-                    var body = m.GetMessageBody();
-                    unsafe
-                    {
-                        fixed (byte* h = body)
-                        {
-                            for (var completed = (long*)h; completed < h + body.Length; completed++)
-                                if (*completed >= darq.Head)
-                                    completionTracker.RemoveEntry(*completed);
-                        }
-                    }
-
-                    completionTracker.RemoveEntry(m.GetLsn());
-                    m.Dispose();
+                    UpdateCompletionTracker(m);
                     break;
                 }
                 default:
                     throw new NotImplementedException();
             }
+            m.Dispose();
 
             if (completionTracker.GetTruncateHead() > darq.log.BeginAddress)
             {
@@ -209,10 +216,10 @@ namespace FASTER.client
                 try
                 {
                     for (var i = 0; i < settings.morselSize; i++)
-                        if (!TryConsumeNext())
+                        if (!await TryConsumeNext())
                             break;
 
-                    currentProducerClient?.ForceFlush();
+                    if (currentProducerClient != null) await currentProducerClient.ForceFlush();
                     await Task.WhenAny(Task.Delay(10), iterator.WaitAsync(stoppingToken).AsTask());
                 }
                 catch (Exception e)
@@ -252,6 +259,7 @@ namespace FASTER.client
                 Debug.Assert(defaultSettings != null);
                 RegisterMaintenanceTask(defaultDarq, defaultSettings);
             }
+
             await Task.Delay(Timeout.Infinite, stoppingToken);
             logger.LogInformation("stop signal received. maintenance background service is cleaning up...");
 
@@ -265,10 +273,12 @@ namespace FASTER.client
             logger.LogInformation("maintenance background service has finished clean-up, shutting down...");
         }
 
-        public DarqBackgroundMaintenanceTask RegisterMaintenanceTask(Darq darq, DarqMaintenanceBackgroundServiceSettings settings)
+        public DarqBackgroundMaintenanceTask RegisterMaintenanceTask(Darq darq,
+            DarqMaintenanceBackgroundServiceSettings settings)
         {
             if (stoppingToken.IsCancellationRequested) throw new TaskCanceledException();
-            if ((defaultDarq != null && darq != defaultDarq) || (defaultSettings != null && settings != defaultSettings))
+            if ((defaultDarq != null && darq != defaultDarq) ||
+                (defaultSettings != null && settings != defaultSettings))
                 throw new InvalidOperationException(
                     "Runtime creation of maintenance task is only allowed if no singleton default DARQ is configured");
             var task = new DarqBackgroundMaintenanceTask(darq, settings, messagePool, logger);

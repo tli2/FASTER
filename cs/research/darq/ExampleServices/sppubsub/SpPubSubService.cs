@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using darq.client;
 using FASTER.client;
@@ -82,23 +81,14 @@ public class PubsubDarqProducer : IDarqProducer
         entry.Item2.Add(callback);
     }
 
-    public void ForceFlush()
+    public async Task ForceFlush()
     {
         foreach (var entry in currentRequest.Values)
         {
-            Task.Run(async () =>
-            {
-                try
-                {
-                    await client.EnqueueEventsAsync(entry.Item1, session);
-                    foreach (var callback in entry.Item2) callback(true);
-                }
-                finally
-                {
-                    requestPool.Return(entry.Item1);
-                    callbackPool.Return(entry.Item2);
-                }
-            });
+            await client.EnqueueEventsAsync(entry.Item1, session);
+            foreach (var callback in entry.Item2) callback(true);
+            requestPool.Return(entry.Item1);
+            callbackPool.Return(entry.Item2);
         }
 
         currentRequest.Clear();
@@ -403,7 +393,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             }
         }
     }
-
+    
     public override async Task<RegisterProcessorResult> RegisterProcessor(RegisterProcessorRequest request,
         ServerCallContext context)
     {
