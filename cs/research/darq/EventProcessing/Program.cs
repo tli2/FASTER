@@ -173,7 +173,10 @@ public class Program
             provider.GetRequiredService<SpPubSubBackendService>());
 
         builder.Services.AddSingleton<SpPubSubService>();
-        builder.Services.AddGrpc();
+        builder.Services.AddGrpc(options =>
+        {
+            options.MaxReceiveMessageSize = null;
+        });
         var app = builder.Build();
         app.MapGrpcService<SpPubSubService>();
         app.MapGet("/",

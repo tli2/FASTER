@@ -44,13 +44,9 @@ public class AggregateEventProcessor : SpPubSubEventHandler
         Debug.Assert(term.Equals(SearchListStreamUtils.relevantSearchTerm));
         var region = split[1].Trim();
         var timestamp = long.Parse(split[2].Trim());
+        
         if (currentBatchStartTime == -1)
             currentBatchStartTime = timestamp;
-
-        if (!currentBatch.TryGetValue(region, out var c))
-            currentBatch[region] = 1;
-        else
-            currentBatch[region] = c + 1;
 
         if (timestamp > currentBatchStartTime + SearchListStreamUtils.WindowSizeMilli)
         {
@@ -70,6 +66,15 @@ public class AggregateEventProcessor : SpPubSubEventHandler
             currentBatchStartTime = timestamp;
         }
 
+        if (timestamp < currentBatchStartTime)
+        {
+            Console.WriteLine("Out of order!!!");
+        }
+        
+        if (!currentBatch.TryGetValue(region, out var c))
+            currentBatch[region] = 1;
+        else
+            currentBatch[region] = c + 1;
         largestTimestampInBatch = Math.Max(largestTimestampInBatch, timestamp);
         currentRequest.ConsumedMessageOffsets.Add(ev.Offset);
     }
