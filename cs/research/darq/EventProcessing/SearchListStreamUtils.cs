@@ -198,7 +198,7 @@ public class SearchListDataLoader
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
-            ProducerId = 0,
+            ProducerId = -1,
             TopicId = topicName,
         };
         for (var i = 0; i < timestamps.Count; i++)
@@ -250,15 +250,14 @@ public class SearchListDataLoader
                 }
                 batched = new EnqueueRequest
                 {
-                    ProducerId = 0,
+                    ProducerId = -1,
                     TopicId = topicName,
                 };
             }
         }
         var termination = new EnqueueRequest
         {
-            ProducerId = 0,
-            SequenceNum = timestamps.Count,
+            ProducerId = -1,
             TopicId = topicName,
         };
         termination.Events.Add($"termination");
@@ -284,7 +283,7 @@ public class SearchListDataLoader
         stopwatch.Start();
         var batched = new EnqueueRequest
         {
-            ProducerId = 0,
+            ProducerId = -1,
             TopicId = topicName,
         };
         for (var i = 0; i < timestamps.Count; i++)
@@ -316,7 +315,7 @@ public class SearchListDataLoader
                     });
                     batched = new EnqueueRequest
                     {
-                        ProducerId = 0,
+                        ProducerId = -1,
                         TopicId = topicName,
                     };
                 }
@@ -349,7 +348,7 @@ public class SearchListDataLoader
                 });
                 batched = new EnqueueRequest
                 {
-                    ProducerId = 0,
+                    ProducerId = -1,
                     TopicId = topicName,
                 };
             }

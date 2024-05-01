@@ -92,7 +92,7 @@ public class Program
         var stopwatch = new Stopwatch();
         var loader = new SearchListDataLoader(options.WorkloadTrace, client, 0, stopwatch);
         var numRecords = loader.LoadData();
-        _ = Task.Run(loader.SequentialIssue);
+        _ = Task.Run(() => loader.ParallelIssue(64));
         var processingClient = new SpPubSubProcessorClient(3, client);
         var measurementProcessor = new SearchListLatencyMeasurementProcessor(stopwatch, client);
         _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, false));
