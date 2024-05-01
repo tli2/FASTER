@@ -143,10 +143,16 @@ namespace FASTER.client
 
             if (m.GetNextLsn() >= lastSyncedTail)
             {
-                darq.StartLocalAction();
-                lastSyncedTail = darq.Tail;
-                session.DependOn(darq);
-                darq.EndAction();
+                try
+                {
+                    darq.StartLocalAction();
+                    lastSyncedTail = darq.Tail;
+                    session.DependOn(darq);
+                }
+                finally
+                {
+                    darq.EndAction();
+                }
                 if (!settings.speculative)
                     session.SpeculationBarrier(darq.GetDprFinder()).GetAwaiter().GetResult();
             }

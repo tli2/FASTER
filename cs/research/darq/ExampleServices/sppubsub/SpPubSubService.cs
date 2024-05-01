@@ -60,7 +60,6 @@ public class PubsubDarqProducer : IDarqProducer
     public void EnqueueMessageWithCallback(DarqId darqId, ReadOnlySpan<byte> message, Action<bool> callback,
         long producerId, long lsn)
     {
-
         if (!currentRequest.TryGetValue(darqId, out var entry))
         {
             var request = requestPool.Checkout();
@@ -70,9 +69,10 @@ public class PubsubDarqProducer : IDarqProducer
             request.Events.Clear();
             var callbacks = callbackPool.Checkout();
             callbacks.Clear();
-            
+
             entry = currentRequest[darqId] = (request, callbacks);
         }
+
         // Only expecting to call with a single producerId for now
         Debug.Assert(entry.Item1.ProducerId == producerId);
         // Only expecting to get monotonically increasing lsns for now
@@ -100,6 +100,7 @@ public class PubsubDarqProducer : IDarqProducer
                 }
             });
         }
+
         currentRequest.Clear();
     }
 }
@@ -319,54 +320,33 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
     }
 
 
-    private unsafe bool TryReadOneEntry(Darq topic, long worldLine, DarqScanIterator scanner,
-        LightEpoch.EpochContext context, out Event ev, bool speculative)
+    private unsafe bool TryReadOneEntry(DarqScanIterator scanner, out Event ev)
     {
         ev = default;
-        var dprHeaderBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
-        try
+
+        if (!scanner.UnsafeGetNext(out var b, out var length, out var offset, out var nextOffset, out var type))
+            return false;
+
+        if (type is not (DarqMessageType.IN or DarqMessageType.RECOVERY))
         {
-            topic.StartLocalAction(context);
-            if (topic.WorldLine() != worldLine)
-                throw new DprSessionRolledBackException(topic.WorldLine());
-
-            if (!scanner.UnsafeGetNext(out var b, out var length, out var offset, out var nextOffset, out var type))
-                return false;
-
-            if (type is not (DarqMessageType.IN or DarqMessageType.RECOVERY))
-            {
-                scanner.UnsafeRelease();
-                return false;
-            }
-
-            ev = new Event
-            {
-                Type = type switch
-                {
-                    DarqMessageType.IN => pubsub.DarqMessageType.In,
-                    DarqMessageType.RECOVERY => pubsub.DarqMessageType.Recovery,
-                    _ => throw new ArgumentOutOfRangeException()
-                },
-                Data = Encoding.UTF8.GetString(b, length),
-                Offset = offset,
-                NextOffset = nextOffset
-            };
             scanner.UnsafeRelease();
-            return true;
+            return false;
         }
-        finally
+
+        ev = new Event
         {
-            if (speculative)
+            Type = type switch
             {
-                topic.ProduceTagAndEndAction(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize), context);
-                if (ev != default)
-                    ev.DprHeader = ByteString.CopyFrom(new Span<byte>(dprHeaderBytes, DprMessageHeader.FixedLenSize));
-            }
-            else
-            {
-                topic.EndAction();
-            }
-        }
+                DarqMessageType.IN => pubsub.DarqMessageType.In,
+                DarqMessageType.RECOVERY => pubsub.DarqMessageType.Recovery,
+                _ => throw new ArgumentOutOfRangeException()
+            },
+            Data = Encoding.UTF8.GetString(b, length),
+            Offset = offset,
+            NextOffset = nextOffset
+        };
+        scanner.UnsafeRelease();
+        return true;
     }
 
     public override async Task ReadEventsFromTopic(ReadEventsRequest request, IServerStreamWriter<Event> responseStream,
@@ -375,21 +355,40 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         var topic = await backend.GetTopic(request.TopicId);
         var worldLine = topic.WorldLine();
         var scanner = topic.StartScan();
+        var session = new DprSession();
+        var buffer = new byte[1 << 10];
 
         // TODO(Tianyu): Pick the appropriate context 
         LightEpoch.EpochContext epochContext = null;
         long lastCommitted = 0;
-        
+
         while (!context.CancellationToken.IsCancellationRequested)
         {
-            if (TryReadOneEntry(topic, worldLine, scanner, epochContext, out var ev, request.Speculative))
+            if (TryReadOneEntry(scanner, out var ev))
             {
-                if (!request.Speculative && ev.NextOffset >= lastCommitted)
+                if (ev.NextOffset >= lastCommitted)
                 {
-                    // Avoid repeatedly wait for the newest commit
-                    lastCommitted = topic.Tail;
-                    await topic.DprCommit(worldLine, topic.Version());
+                    try
+                    {
+                        topic.StartLocalAction();
+                        // Avoid repeatedly wait for the newest commit
+                        lastCommitted = topic.Tail;
+                        session.DependOn(topic);
+                    }
+                    finally
+                    {
+                        topic.EndAction();
+                    }
+                    if (!request.Speculative)
+                        await topic.DprCommit(worldLine, topic.Version());
                 }
+
+                if (request.Speculative)
+                {
+                    var size = session.TagMessage(buffer);
+                    ev.DprHeader = ByteString.CopyFrom(new Span<byte>(buffer, 0, size));
+                }
+
                 await responseStream.WriteAsync(ev);
             }
             else
@@ -410,7 +409,8 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         };
     }
 
-    public override async Task<GetNumBytesWrittenResult> GetNumBytesWritten(GetNumBytesWrittenRequest request, ServerCallContext context)
+    public override async Task<GetNumBytesWrittenResult> GetNumBytesWritten(GetNumBytesWrittenRequest request,
+        ServerCallContext context)
     {
         var topic = await backend.GetTopic(request.TopicId);
         return new GetNumBytesWrittenResult
