@@ -322,7 +322,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
 
     private unsafe bool TryReadOneEntry(DarqScanIterator scanner, out Event ev)
     {
-        ev = default;
+        ev = null;
 
         if (!scanner.UnsafeGetNext(out var b, out var length, out var offset, out var nextOffset, out var type))
             return false;
@@ -330,7 +330,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         if (type is not (DarqMessageType.IN or DarqMessageType.RECOVERY))
         {
             scanner.UnsafeRelease();
-            return false;
+            return true;
         }
 
         ev = new Event
@@ -353,9 +353,9 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         ServerCallContext context)
     {
         var topic = await backend.GetTopic(request.TopicId);
-        var worldLine = topic.WorldLine();
+        topic.StartLocalAction();
         var scanner = topic.StartScan();
-        var session = new DprSession();
+        var session = topic.DetachFromWorkerAndPauseAction();
         var buffer = new byte[1 << 10];
 
         // TODO(Tianyu): Pick the appropriate context 
@@ -364,8 +364,12 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
 
         while (!context.CancellationToken.IsCancellationRequested)
         {
+            if (!topic.IsCompatible(session))
+                throw new DprSessionRolledBackException(topic.WorldLine());
+
             if (TryReadOneEntry(scanner, out var ev))
             {
+                if (ev == null) continue;
                 if (ev.NextOffset >= lastCommitted)
                 {
                     try
@@ -379,8 +383,9 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                     {
                         topic.EndAction();
                     }
+
                     if (!request.Speculative)
-                        await topic.DprCommit(worldLine, topic.Version());
+                        await session.SpeculationBarrier(topic.GetDprFinder());
                 }
 
                 if (request.Speculative)
@@ -393,7 +398,8 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             }
             else
             {
-                await scanner.WaitAsync(context.CancellationToken);
+                // Ensure we periodically get control flow back to check if we have rolled back
+                await Task.WhenAny(Task.Delay(10), scanner.WaitAsync(context.CancellationToken).AsTask());
             }
         }
     }

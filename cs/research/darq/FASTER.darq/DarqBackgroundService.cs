@@ -213,7 +213,7 @@ namespace FASTER.client
                             break;
 
                     currentProducerClient?.ForceFlush();
-                    await iterator.WaitAsync(stoppingToken);
+                    await Task.WhenAny(Task.Delay(10), iterator.WaitAsync(stoppingToken).AsTask());
                 }
                 catch (Exception e)
                 {

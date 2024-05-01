@@ -345,7 +345,7 @@ namespace FASTER.darq
         {
             Console.WriteLine($"Restoring checkpoint {version}");
             incompleteMessages.Clear();
-
+            
             // TODO(Tianyu): can presumably be more efficient through some type of in-mem truncation here
             log = new FasterLog(logSetting);
             log.Recover(version);

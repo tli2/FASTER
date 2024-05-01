@@ -178,7 +178,7 @@ namespace FASTER.darq
                     // FASTER.darq.StateObject().RefreshSafeReadTail();
                     try
                     {
-                        await iterator.WaitAsync(token);
+                        await Task.WhenAny(Task.Delay(10), iterator.WaitAsync(token).AsTask());
                     }
                     catch (OperationCanceledException) {}
                 }
