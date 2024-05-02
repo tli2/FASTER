@@ -109,7 +109,7 @@ namespace FASTER.libdpr
                         // TODO(Tianyu): Hack to early commit non-speculative work
                         if (deps.Count() == 1)
                         {
-                            so.versionTcs.TryRemove(toState.Version, out var tcs);
+                            so.versionTcs.TryRemove(fromState.Version, out var tcs);
                             tcs.SetResult();
                         }
 
