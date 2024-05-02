@@ -47,7 +47,7 @@ public class Program
             {
                 var requests = new List<ReservationRequest>();
                 foreach (var line in File.ReadLines(
-                             "C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-micro-faster-client.csv"))
+                             "C:\\Users\\tianyu\\Desktop\\workloads\\micro-client-0.csv"))
                 {
                     var split = line.Split(',');
                     requests.Add(new ReservationRequest
@@ -63,7 +63,7 @@ public class Program
                     latencies.Add(0);
 
                 var clients = new List<FasterKVReservationService.FasterKVReservationServiceClient>();
-                for (var i = 0; i < 8; i++)
+                for (var i = 0; i < Environment.ProcessorCount; i++)
                 {
                     var channel = GrpcChannel.ForAddress("http://10.0.0.4:15721");
                     clients.Add(new FasterKVReservationService.FasterKVReservationServiceClient(channel));
@@ -73,13 +73,12 @@ public class Program
                 var stopwatch = Stopwatch.StartNew();
                 for (var i = 0; i < requests.Count; i++)
                 {
-                    
                     await semaphore.WaitAsync();
                     var startTime = stopwatch.ElapsedTicks;
                     var i1 = i;
                     _ = Task.Run(async () =>
                     {
-                        await clients[i1 % 8].MakeReservationAsync(requests[i1]); 
+                        await clients[i1 % clients.Count].MakeReservationAsync(requests[i1]); 
                         semaphore.Release();
                         latencies[i1] = stopwatch.ElapsedTicks - startTime;
                     });
@@ -138,7 +137,7 @@ public class Program
             LogDevice = new NullDevice(),
             PageSize = 1 << 25,
             SegmentSize = 1 << 30,
-            MemorySize = 1 << 31,
+            MemorySize = 1L << 32,
             CheckpointManager = checkpointManager,
             TryRecoverLatest = false,
         });
@@ -155,7 +154,7 @@ public class Program
         builder.Services.AddSingleton<FasterKvReservationStateObject>();
         builder.Services.AddSingleton(new FasterKvReservationStartFile
         {
-            file = "C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-micro-faster.csv"
+            file = "C:\\Users\\tianyu\\Desktop\\workloads\\micro-service-0.csv"
         });
         builder.Services.AddSingleton<FasterKvReservationBackgroundService>();
 
@@ -185,7 +184,8 @@ public class Program
             serverOptions.Listen(IPAddress.Any, 15721,
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
         });
-        
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
         var checkpointManager = new DeviceLogCommitCheckpointManager(
             new NullNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\service"), removeOutdated: false);
@@ -195,19 +195,19 @@ public class Program
             LogDevice = new NullDevice(),
             PageSize = 1 << 25,
             SegmentSize = 1 << 30,
-            MemorySize = 1 << 31,
+            MemorySize = 1L << 32,
             CheckpointManager = checkpointManager,
             TryRecoverLatest = false,
         });
         builder.Services.AddSingleton<FasterKV<Key, Value>>();
         builder.Services.AddSingleton(new FasterKvReservationStartFile
         {
-            file = "C:\\Users\\tianyu\\Documents\\FASTER\\cs\\research\\darq\\workloads\\workload-micro-faster.csv"
+            file = "C:\\Users\\tianyu\\Desktop\\workloads\\micro-service-0.csv"
         });
         builder.Services.AddSingleton<NonDseFasterBackgroundService>();
 
         builder.Services.AddSingleton<NonDseReservationService>();
-        builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<FasterKvReservationService>>(); });
+        builder.Services.AddGrpc();
         builder.Services.AddHostedService<NonDseFasterBackgroundService>(provider =>
             provider.GetRequiredService<NonDseFasterBackgroundService>());
         var app = builder.Build();

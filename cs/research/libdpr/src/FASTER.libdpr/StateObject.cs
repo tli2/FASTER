@@ -34,7 +34,7 @@ namespace FASTER.libdpr
         private TaskCompletionSource<long> nextCommit;
 
         private List<IStateObjectAttachment> attachments = new List<IStateObjectAttachment>();
-        private byte[] metadataBuffer = new byte[1 << 15];
+        private byte[] metadataBuffer = new byte[1 << 20];
 
         private SimpleObjectPool<DprSession> sessionPool;
         private bool connected;
@@ -138,7 +138,7 @@ namespace FASTER.libdpr
 
             versions = new ConcurrentDictionary<long, LightDependencySet>();
             dependencySetPool = new SimpleObjectPool<LightDependencySet>(() => new LightDependencySet());
-            depSerializationArray = new byte[2 * LightDependencySet.MaxClusterSize * sizeof(long)];
+            depSerializationArray = new byte[1 << 20];
             nextCommit = new TaskCompletionSource<long>();
             sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         }

@@ -76,11 +76,11 @@ public class Program
             case "generate":
                 new WorkloadGenerator()
                     .SetNumClients(1)
-                    .SetNumServices(3)
-                    .SetNumWorkflowsPerSecond(100)
-                    .SetNumSeconds(120)
-                    .SetNumOfferings(10000)
-                    .SetBaseFileName("C:\\Users\\tianyu\\Desktop\\workloads\\test")
+                    .SetNumServices(1)
+                    .SetNumWorkflowsPerSecond(1)
+                    .SetNumSeconds(1000000)
+                    .SetNumOfferings(1000000)
+                    .SetBaseFileName("C:\\Users\\tianyu\\Desktop\\workloads\\micro")
                     .GenerateWorkloadTrace(new Random());
                 break;
             default:
