@@ -57,7 +57,7 @@ message EnqueueRequest {
 
 message EnqueueResult {
   bytes dprHeader = 1;
-  bool ok = 2;
+  int32 numAdded = 2;
 }
 
 message ReadEventsRequest {
@@ -76,11 +76,19 @@ message GetNumBytesWrittenResult {
 service SpPubSub {
   rpc EnqueueEvents(EnqueueRequest) returns (EnqueueResult);
   
+  rpc EnqueueEventsStream(stream EnqueueRequest) returns (stream EnqueueResult);
+  
+  rpc EnqueueEventsStreamSpeculative(stream EnqueueRequest) returns (stream EnqueueResult);
+
   rpc ReadEventsFromTopic(ReadEventsRequest) returns (stream Event);
 
   rpc RegisterProcessor(RegisterProcessorRequest) returns (RegisterProcessorResult);
 
   rpc Step(StepRequest) returns (StepResult);
+
+  rpc StepStream(stream StepRequest) returns (stream StepResult);
   
+  rpc StepStreamSpeculative(stream StepRequest) returns (stream StepResult);
+
   rpc GetNumBytesWritten(GetNumBytesWrittenRequest) returns (GetNumBytesWrittenResult);
 }

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Xml;
 using darq.client;
 using FASTER.common;
 using FASTER.darq;
@@ -157,9 +158,11 @@ namespace FASTER.client
 
             if (m.GetNextLsn() >= lastSyncedTail)
             {
+                long version = 0;
                 try
                 {
                     darq.StartLocalAction();
+                    version = darq.Version();
                     lastSyncedTail = darq.Tail;
                     session.DependOn(darq);
                 }
@@ -169,7 +172,10 @@ namespace FASTER.client
                 }
 
                 if (!settings.speculative)
-                    await session.SpeculationBarrier(darq.GetDprFinder());
+                {
+                    Debug.Assert(version != 0);
+                    await darq.DprCommit(version);
+                }
             }
 
             switch (m.GetMessageType())
@@ -192,7 +198,7 @@ namespace FASTER.client
             if (completionTracker.GetTruncateHead() > darq.log.BeginAddress)
             {
                 // logger.LogInformation($"Truncating log until {completionTracker.GetTruncateHead()}");
-                if (darq.TakeOnDependencyAndStartAction(session))
+                if (await darq.TakeOnDependencyAndStartActionAsync(session))
                 {
                     darq.TruncateUntil(completionTracker.GetTruncateHead());
                     darq.EndAction();

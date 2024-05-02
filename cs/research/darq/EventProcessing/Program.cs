@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using dse.services;
 using FASTER.client;
 using Microsoft.Extensions.Logging;
+using pubsub;
 
 namespace EventProcessing;
 
@@ -35,7 +36,7 @@ public class Options
         HelpText = "identifier of the service to launch")]
     public int HostId { get; set; }
     
-    [Option('s', "speculative", Required = false, Default = false,
+    [Option('s', "speculative", Required = false, Default = true,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
@@ -52,9 +53,9 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        // IEnvironment environment = new LocalDebugEnvironment();
+        IEnvironment environment = new LocalDebugEnvironment();
         // var environment = new KubernetesLocalStorageEnvironment(true);
-        var environment = new KubernetesLocalStorageEnvironmentForRecovery();
+        // var environment = new KubernetesLocalStorageEnvironmentForRecovery();
         
         switch (options.Type.Trim())
         {
@@ -92,7 +93,7 @@ public class Program
         var stopwatch = new Stopwatch();
         var loader = new SearchListDataLoader(options.WorkloadTrace, client, 0, stopwatch);
         var numRecords = loader.LoadData();
-        _ = Task.Run(() => loader.ParallelIssue(64));
+        _ = Task.Run(loader.Run);
         var processingClient = new SpPubSubProcessorClient(3, client);
         var measurementProcessor = new SearchListLatencyMeasurementProcessor(stopwatch, client);
         _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, false));

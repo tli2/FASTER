@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using dse.services;
+using FASTER.common;
 
 namespace TravelReservation;
 public class Options
@@ -182,17 +183,12 @@ public class Program
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
         builder.Services.AddSingleton<Darq>();
         builder.Services.AddSingleton<StateObject>(sp => sp.GetService<Darq>());
-        builder.Services.AddSingleton(new DarqMaintenanceBackgroundServiceSettings
-        {
-            morselSize = 512,
-            // Workflow orchestrator DARQs never produce out messages
-            producerFactory = null,
-            speculative = true
-        });
 
         var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
+        var stepRequestPool = new SimpleObjectPool<StepRequest>(() => new StepRequest(), maxObjects: 1024);
+
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, connectionPool, environment, options.Speculative, logger) } };
+            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, stepRequestPool, connectionPool, environment, options.Speculative, logger) } };
         builder.Services.AddSingleton(new OrchestartorBackgroundProcessingServiceSettings
         {
             workflowFactories = workflowFactories,
@@ -205,7 +201,6 @@ public class Program
         builder.Services.AddHostedService<OrchestratorBackgroundProcessingService>(provider =>
             provider.GetRequiredService<OrchestratorBackgroundProcessingService>());
         builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
-        builder.Services.AddHostedService<DarqMaintenanceBackgroundService>();
         builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<WorkflowOrchestratorService>>(); });
         var app = builder.Build();
         

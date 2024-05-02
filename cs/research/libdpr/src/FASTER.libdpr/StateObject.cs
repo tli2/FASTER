@@ -24,6 +24,7 @@ namespace FASTER.libdpr
         public readonly DprWorkerOptions options;
 
         private readonly ConcurrentDictionary<long, LightDependencySet> versions;
+        private readonly ConcurrentDictionary<long, TaskCompletionSource> versionTcs = new();
         protected readonly IVersionScheme versionScheme;
         private long worldLine = 1;
 
@@ -31,16 +32,14 @@ namespace FASTER.libdpr
         private Stopwatch sw = Stopwatch.StartNew();
 
         private readonly byte[] depSerializationArray;
-        private TaskCompletionSource<long> nextCommit;
-
-        private List<IStateObjectAttachment> attachments = new List<IStateObjectAttachment>();
+        private List<IStateObjectAttachment> attachments = new();
         private byte[] metadataBuffer = new byte[1 << 20];
 
         private SimpleObjectPool<DprSession> sessionPool;
         private bool connected;
 
         private long largestRequestedCheckpointVersion = -1;
-        private SemaphoreSlim rateLimiter = new SemaphoreSlim(Environment.ProcessorCount, Environment.ProcessorCount);
+        private SemaphoreSlim rateLimiter = new(Environment.ProcessorCount, Environment.ProcessorCount);
 
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {
@@ -117,6 +116,7 @@ namespace FASTER.libdpr
                     if (fromState.Version != 0) newDeps.Update(so.options.Me, fromState.Version);
                     var success = so.versions.TryAdd(toState.Version, newDeps);
                     Debug.Assert(success);
+                    so.versionTcs.TryAdd(toState.Version, new TaskCompletionSource());
                 }
             }
 
@@ -139,7 +139,6 @@ namespace FASTER.libdpr
             versions = new ConcurrentDictionary<long, LightDependencySet>();
             dependencySetPool = new SimpleObjectPool<LightDependencySet>(() => new LightDependencySet());
             depSerializationArray = new byte[1 << 20];
-            nextCommit = new TaskCompletionSource<long>();
             sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         }
 
@@ -147,13 +146,11 @@ namespace FASTER.libdpr
         
         /// <summary></summary>
         /// <returns> A task that completes when the next commit is recoverable</returns>
-        public async Task DprCommit(long worldLine, long version)
+        public ValueTask DprCommit(long version)
         {
-            while (CommittedVersion() < version)
-            {
-                if (worldLine != WorldLine()) throw new DprSessionRolledBackException(WorldLine());
-                await nextCommit.Task;
-            }
+            if (versionTcs.TryGetValue(version, out var tcs)) 
+                return new ValueTask(tcs.Task);
+            return ValueTask.CompletedTask;
         }
 
         /// <summary>
@@ -207,10 +204,15 @@ namespace FASTER.libdpr
 
             // Clear any leftover state and signal complete
             versions.Clear();
+            foreach (var tcs in versionTcs.Values)
+                tcs.SetException(new DprSessionRolledBackException(newWorldLine));
+            versionTcs.Clear();
             var deps = dependencySetPool.Checkout();
             if (vOld != 0)
                 deps.Update(options.Me, vOld);
             var success = versions.TryAdd(vNew, deps);
+            versionTcs.TryAdd(vNew, new TaskCompletionSource());
+
             Debug.Assert(success);
             worldLine = newWorldLine;
         }
@@ -250,6 +252,7 @@ namespace FASTER.libdpr
                         if (vOld != 0)
                             newDeps.Update(options.Me, vOld);
                         var success = versions.TryAdd(vNew, newDeps);
+                        versionTcs.TryAdd(vNew, new TaskCompletionSource());
                         Debug.Assert(success);
                         worldLine = newWorldLine;
                     }
@@ -304,6 +307,7 @@ namespace FASTER.libdpr
             {
                 var deps = dependencySetPool.Checkout();
                 var success = versions.TryAdd(1, deps);
+                versionTcs.TryAdd(1, new TaskCompletionSource());
                 Debug.Assert(success);
             }
 
@@ -353,16 +357,14 @@ namespace FASTER.libdpr
 
             // Can prune dependency information of committed versions
             var newCommitted = CommittedVersion();
-            if (lastCommitted != newCommitted)
-            {
-                var oldTask = nextCommit;
-                nextCommit = new TaskCompletionSource<long>();
-                oldTask.SetResult(newCommitted);
-            }
 
             for (var i = lastCommitted; i < newCommitted; i++)
                 if (i != 0)
+                {
                     PruneVersion(i);
+                    if (versionTcs.TryRemove(i, out var tcs))
+                        tcs.SetResult();
+                }
         }
 
         private unsafe void UpdateDeps(ReadOnlySpan<byte> headerBytes)

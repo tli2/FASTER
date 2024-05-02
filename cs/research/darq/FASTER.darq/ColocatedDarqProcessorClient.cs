@@ -112,9 +112,11 @@ namespace FASTER.darq
 
                 if (m.GetNextLsn() >= lastSyncedTail)
                 {
+                    long version = 0;
                     try
                     {
                         darq.StartLocalAction();
+                        version = darq.Version();
                         lastSyncedTail = darq.Tail;
                         session.DependOn(darq);
                     }
@@ -122,8 +124,12 @@ namespace FASTER.darq
                     {
                         darq.EndAction();
                     }
+
                     if (!speculative)
-                        session.SpeculationBarrier(darq.GetDprFinder()).GetAwaiter().GetResult();
+                    {
+                        Debug.Assert(version != 0);
+                        darq.DprCommit(version).GetAwaiter().GetResult();
+                    }
                 }
                 
                 switch (m.GetMessageType())

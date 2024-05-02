@@ -1,6 +1,9 @@
 using FASTER.core;
 using FASTER.libdpr;
+using Google.Protobuf;
+using Grpc.Core;
 using pubsub;
+using StepRequest = pubsub.StepRequest;
 
 namespace dse.services;
 
@@ -16,16 +19,36 @@ public interface SpPubSubEventHandler
 
 public class PubsubCapabilities
 {
-    internal SpPubSubServiceClient client;
-    internal DprSession session;
-    internal long incarnationId;
-    internal int topicId;
+    private AsyncDuplexStreamingCall<StepRequest, StepResult> stream;
+    private DprSession session;
+    private long incarnationId;
+    private int topicId;
+    private byte[] serializationArray = new byte[1 << 10];
 
+    public PubsubCapabilities(AsyncDuplexStreamingCall<StepRequest, StepResult> stream, long incarnationId, int topicId, DprSession session)
+    {
+        if (session != null)
+            Task.Run(async () =>
+            {
+                await foreach (var result in stream.ResponseStream.ReadAllAsync())
+                    session.Receive(result.DprHeader.Span);
+            });
+        this.stream = stream;
+        this.incarnationId = incarnationId;
+        this.topicId = topicId;
+        this.session = session;
+    }
+    
     public Task Step(pubsub.StepRequest request)
     {
+        if (session != null)
+        {
+            var size = session.TagMessage(serializationArray);
+            request.DprHeader = ByteString.CopyFrom(new Span<byte>(serializationArray, 0, size));
+        }
         request.IncarnationId = incarnationId;
         request.TopicId = topicId;
-        return client.StepAsync(request, session);
+        return stream.RequestStream.WriteAsync(request);
     }
 }
 
@@ -47,15 +70,20 @@ public class SpPubSubProcessorClient
         incarnationId = await client.RegisterProcessor(topicId);
         while (!token.IsCancellationRequested)
         {
-            var session = speculative ? new DprSession() : null;
-            handler.OnRestart(new PubsubCapabilities
+            DprSession session = null;
+            if (speculative)
             {
-                client = client,
-                // To ensure that step returns quickly, make the return speculative even if processing is not 
-                session = speculative ? session : new DprSession(),
-                incarnationId = incarnationId,
-                topicId = topicId
-            });
+                session = new DprSession();
+                var s = new SpPubSub.SpPubSubClient(await client.GetOrCreateConnection(topicId))
+                    .StepStreamSpeculative(cancellationToken: token);
+                handler.OnRestart(new PubsubCapabilities(s, incarnationId, topicId, session));
+            }
+            else
+            {
+                var s = new SpPubSub.SpPubSubClient(await client.GetOrCreateConnection(topicId))
+                    .StepStream(cancellationToken: token);
+                handler.OnRestart(new PubsubCapabilities(s, incarnationId, topicId, null));
+            }
             var stream = client.ReadEventsFromTopic(new ReadEventsRequest
             {
                 Speculative = speculative,

@@ -1,12 +1,10 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using dse.services;
-using FASTER.libdpr;
+using Grpc.Core;
 using MathNet.Numerics.Distributions;
 using Newtonsoft.Json;
 using pubsub;
-using StepRequest = FASTER.libdpr.StepRequest;
 
 namespace EventProcessing;
 
@@ -175,7 +173,7 @@ public class SearchListDataLoader
     private SpPubSubServiceClient client;
     private int topicName;
     private Stopwatch stopwatch;
-    
+
     public SearchListDataLoader(string filename, SpPubSubServiceClient client, int topicName, Stopwatch stopwatch)
     {
         this.filename = filename;
@@ -193,164 +191,67 @@ public class SearchListDataLoader
         return timestamps.Count;
     }
 
-    public async Task SequentialIssue()
+    public async Task Run()
     {
         stopwatch.Start();
-        var batched = new EnqueueRequest
-        {
-            ProducerId = -1,
-            TopicId = topicName,
-        };
-        for (var i = 0; i < timestamps.Count; i++)
-        {
-            var time = timestamps[i];
-            var currentTime = stopwatch.ElapsedMilliseconds;
-            while (currentTime < time)
-            {
-                if (batched.Events.Count != 0)
-                {
-                    while (true)
-                    {
-                        try
-                        {
-                            await client.EnqueueEventsAsync(batched);
-                            break;
-                        }
-                        catch (Exception e)
-                        {
-                            // Wait a bit so failures can recover
-                            await Task.Delay(10);
-                        }
-                    }
-                    batched = new EnqueueRequest
-                    {
-                        ProducerId = 0,
-                        TopicId = topicName,
-                    };
-                }
-                Thread.Yield();
-                currentTime = stopwatch.ElapsedMilliseconds;
-            }
-            batched.SequenceNum = i;
-            batched.Events.Add(rawJsons[i]);
-            if (batched.Events.Count >= 1024)
-            {
-                while (true)
-                {
-                    try
-                    {
-                        await client.EnqueueEventsAsync(batched);
-                        break;
-                    }
-                    catch (Exception e)
-                    {
-                        // Wait a bit so failures can recover
-                        await Task.Delay(10);
-                    }
-                }
-                batched = new EnqueueRequest
-                {
-                    ProducerId = -1,
-                    TopicId = topicName,
-                };
-            }
-        }
-        var termination = new EnqueueRequest
-        {
-            ProducerId = -1,
-            TopicId = topicName,
-        };
-        termination.Events.Add($"termination");
-        while (true)
+        var completedUntil = 0;
+
+        while (completedUntil < timestamps.Count)
         {
             try
             {
-                await client.EnqueueEventsAsync(termination);
-                break;
-            }
-            catch (Exception e)
-            {
-                // Wait a bit so failures can recover
-                await Task.Delay(10);
-            }
-        }
-        Console.WriteLine("########## Finished publishing messages");
-    }
-
-    public async Task ParallelIssue(int degree = 128)
-    {
-        var semaphore = new SemaphoreSlim(degree, degree);
-        stopwatch.Start();
-        var batched = new EnqueueRequest
-        {
-            ProducerId = -1,
-            TopicId = topicName,
-        };
-        for (var i = 0; i < timestamps.Count; i++)
-        {
-            var time = timestamps[i];
-            var currentTime = stopwatch.ElapsedMilliseconds;
-            while (currentTime < time)
-            {
-                if (batched.Events.Count != 0)
-                {
-                    var batched1 = batched;
-                    await semaphore.WaitAsync();
-                    _ = Task.Run(async () =>
-                    {
-                        while (true)
-                        {
-                            try
-                            {
-                                await client.EnqueueEventsAsync(batched1);
-                                semaphore.Release();
-                                return;
-                            }
-                            catch (Exception e)
-                            {
-                                // Wait a bit so failures can recover
-                                await Task.Delay(10);
-                            }
-                        }
-                    });
-                    batched = new EnqueueRequest
-                    {
-                        ProducerId = -1,
-                        TopicId = topicName,
-                    };
-                }
-                Thread.Yield();
-                currentTime = stopwatch.ElapsedMilliseconds;
-            }
-            batched.SequenceNum = i;
-            batched.Events.Add(rawJsons[i]);
-            if (batched.Events.Count >= 64)
-            {
-                await semaphore.WaitAsync();
-                var now = stopwatch.ElapsedMilliseconds;
-                var batched1 = batched;
+                var stream = new SpPubSub.SpPubSubClient(await client.GetOrCreateConnection(0)).EnqueueEventsStream();
                 _ = Task.Run(async () =>
                 {
-                    while (true)
-                    {
-                        try
-                        {
-                            await client.EnqueueEventsAsync(batched1);
-                            semaphore.Release();
-                            return;
-                        }
-                        catch (Exception e)
-                        {
-                            // Wait a bit so failures can recover
-                            await Task.Delay(10);
-                        }
-                    }
+                    await foreach (var r in stream.ResponseStream.ReadAllAsync())
+                        Interlocked.Add(ref completedUntil, r.NumAdded);
                 });
-                batched = new EnqueueRequest
+
+                var batched = new EnqueueRequest
                 {
                     ProducerId = -1,
                     TopicId = topicName,
                 };
+                for (var i = completedUntil; i < timestamps.Count; i++)
+                {
+                    var time = timestamps[i];
+                    var currentTime = stopwatch.ElapsedMilliseconds;
+                    while (currentTime < time)
+                    {
+                        if (batched.Events.Count != 0)
+                        {
+                            await stream.RequestStream.WriteAsync(batched);
+                            batched = new EnqueueRequest
+                            {
+                                ProducerId = -1,
+                                TopicId = topicName,
+                            };
+                        }
+                        Thread.Yield();
+                        currentTime = stopwatch.ElapsedMilliseconds;
+                    }
+
+                    batched.SequenceNum = i;
+                    batched.Events.Add(rawJsons[i]);
+                    if (batched.Events.Count >= 64)
+                    {
+                        await stream.RequestStream.WriteAsync(batched);
+                        batched = new EnqueueRequest
+                        {
+                            ProducerId = -1,
+                            TopicId = topicName,
+                        };
+                    }
+                }
+                
+                await stream.RequestStream.CompleteAsync();
+                break;
+            }
+            catch (Exception e)                                
+            {
+                // Wait a bit so failures can recover and retry
+                await Task.Delay(10);
+                continue;
             }
         }
         var termination = new EnqueueRequest

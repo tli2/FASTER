@@ -53,13 +53,13 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private List<ReservationRequest> toExecute = new();
     private TaskCompletionSource<bool> tcs = new();
     private IDarqProcessorClientCapabilities capabilities;
-    private SimpleObjectPool<StepRequest> stepRequestPool = new(() => new StepRequest());
+    private SimpleObjectPool<StepRequest> stepRequestPool;
     private ConcurrentDictionary<int, GrpcChannel> connectionPool;
     private IEnvironment environment;
     private bool speculative;
     private ILogger logger;
 
-    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input,
+    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input, SimpleObjectPool<StepRequest> stepRequestPool, 
         ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative, ILogger logger)
     {
         var messageString = Encoding.UTF8.GetString(input);
@@ -77,6 +77,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         }
 
         this.connectionPool = connectionPool;
+        this.stepRequestPool = stepRequestPool;
         this.environment = environment;
         this.speculative = speculative;
         this.logger = logger;

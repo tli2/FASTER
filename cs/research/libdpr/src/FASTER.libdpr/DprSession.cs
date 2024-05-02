@@ -185,7 +185,8 @@ namespace FASTER.libdpr
                     worldLine = -dprFinder.SystemWorldLine();
                     throw new DprSessionRolledBackException(WorldLine);
                 }
-
+                
+                // TODO(Tianyu): Perf problem?
                 if (deps.All(wv => dprFinder.SafeVersion(wv.DprWorkerId) >= wv.Version))
                 {
                     deps.UnsafeClear();

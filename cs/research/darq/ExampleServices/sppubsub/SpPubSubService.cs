@@ -10,6 +10,7 @@ using FASTER.libdpr;
 using Google.Protobuf;
 using Grpc.Core;
 using Microsoft.Extensions.Hosting;
+using Nito.AsyncEx;
 using pubsub;
 using DarqMessageType = FASTER.libdpr.DarqMessageType;
 using DarqStepStatus = pubsub.DarqStepStatus;
@@ -38,20 +39,80 @@ internal struct EventDataAdapter : ILogEnqueueEntry
     }
 }
 
+public class PubsubSingleDarqProducer
+{
+    private AsyncDuplexStreamingCall<EnqueueRequest, EnqueueResult> stream;
+    private ConcurrentQueue<(EnqueueRequest, List<Action<bool>>)> callbacks = new();
+    private byte[] dprSerializationBuffer = new byte[1 << 10];
+    private DprSession session;
+
+    public PubsubSingleDarqProducer(SpPubSub.SpPubSubClient client, DprSession session, SimpleObjectPool<EnqueueRequest> requestPool, SimpleObjectPool<List<Action<bool>>> callbackPool)
+    {
+        this.session = session;
+        if (session != null)
+        {
+            stream = client.EnqueueEventsStreamSpeculative();
+            Task.Run(async () =>
+            {
+                await foreach (var r in stream.ResponseStream.ReadAllAsync())
+                {
+                    if (session.Receive(r.DprHeader.Span))
+                    {
+                        var success = callbacks.TryDequeue(out var entry);
+                        Debug.Assert(success);
+                        foreach (var callback in entry.Item2) callback(true);
+                        requestPool.Return(entry.Item1);
+                        callbackPool.Return(entry.Item2);
+                    }
+                }
+            });
+        }
+        else
+        {
+            stream = client.EnqueueEventsStream();
+            Task.Run(async () =>
+            {
+                await foreach (var r in stream.ResponseStream.ReadAllAsync())
+                {
+                    var success = callbacks.TryDequeue(out var entry);
+                    Debug.Assert(success);
+                    foreach (var callback in entry.Item2) callback(true);
+                    requestPool.Return(entry.Item1);
+                    callbackPool.Return(entry.Item2);
+                }
+            });
+        }
+    }
+
+    public Task Enqueue(EnqueueRequest r, List<Action<bool>> c)
+    {
+        if (session != null)
+        {
+            var size = session.TagMessage(dprSerializationBuffer);
+            r.DprHeader = ByteString.CopyFrom(new Span<byte>(dprSerializationBuffer, 0, size));
+        }
+
+        callbacks.Enqueue((r, c));
+        return stream.RequestStream.WriteAsync(r);
+    }
+    
+}
+
 public class PubsubDarqProducer : IDarqProducer
 {
     private SpPubSubServiceClient client;
+    private Dictionary<DarqId, PubsubSingleDarqProducer> streams = new();
     private DprSession session;
-    private SimpleObjectPool<EnqueueRequest> requestPool = new(() => new EnqueueRequest());
-    private SimpleObjectPool<List<Action<bool>>> callbackPool = new(() => new List<Action<bool>>(32));
     private Dictionary<DarqId, (EnqueueRequest, List<Action<bool>>)> currentRequest = new();
+    private SimpleObjectPool<EnqueueRequest> requestPool = new(() => new EnqueueRequest());
+    private SimpleObjectPool<List<Action<bool>>> callbackPool = new(() => new List<Action<bool>>());
 
     public PubsubDarqProducer(Dictionary<int, (int, string)> clusterMap, DprSession session)
     {
         client = new SpPubSubServiceClient(clusterMap);
         this.session = session;
     }
-
+    
     public void Dispose()
     {
     }
@@ -83,12 +144,15 @@ public class PubsubDarqProducer : IDarqProducer
 
     public async Task ForceFlush()
     {
-        foreach (var entry in currentRequest.Values)
+        foreach (var entry in currentRequest)
         {
-            await client.EnqueueEventsAsync(entry.Item1, session);
-            foreach (var callback in entry.Item2) callback(true);
-            requestPool.Return(entry.Item1);
-            callbackPool.Return(entry.Item2);
+            if (!streams.TryGetValue(entry.Key, out var stream))
+            {
+                var c = new SpPubSub.SpPubSubClient(await this.client.GetOrCreateConnection((int) entry.Key.guid));
+                stream = streams[entry.Key] = new PubsubSingleDarqProducer(c, session, requestPool, callbackPool);
+            }
+
+            await stream.Enqueue(entry.Value.Item1, entry.Value.Item2);
         }
 
         currentRequest.Clear();
@@ -214,10 +278,11 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                 // Use an error to signal to caller that this call cannot proceed
                 // TODO(Tianyu): add more descriptive exception information
                 throw new RpcException(Status.DefaultCancelled);
+            var ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
+                request.ProducerId, request.SequenceNum);
             var result = new EnqueueResult
             {
-                Ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
-                    request.ProducerId, request.SequenceNum)
+                NumAdded = ok ? request.Events.Count : 0
             };
             result.DprHeader = PopulateHeaderAndEndAction(topic);
 
@@ -226,16 +291,81 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         else
         {
             topic.StartLocalAction();
-            var wl = topic.WorldLine();
             var v = topic.Version();
+            var ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
+                request.ProducerId, request.SequenceNum);
             var result = new EnqueueResult
             {
-                Ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
-                    request.ProducerId, request.SequenceNum)
+                NumAdded = ok ? request.Events.Count : 0
             };
             topic.EndAction();
-            await topic.DprCommit(wl, v);
+            await topic.DprCommit(v);
             return result;
+        }
+    }
+
+    public override async Task EnqueueEventsStream(IAsyncStreamReader<EnqueueRequest> requestStream,
+        IServerStreamWriter<EnqueueResult> responseStream,
+        ServerCallContext context)
+    {
+        var writeQueue = new AsyncCollection<(long, Darq, EnqueueResult)>();
+        _ = Task.Run(async () =>
+        {
+            while (await writeQueue.OutputAvailableAsync())
+            {
+                var (v, darq, result) = writeQueue.Take();
+                await darq.DprCommit(v);
+                await responseStream.WriteAsync(result);
+            }
+        });
+        try
+        {
+            while (await requestStream.MoveNext(context.CancellationToken))
+            {
+                var request = requestStream.Current;
+                Debug.Assert(request.DprHeader.IsEmpty);
+                // TODO(Tianyu): Create Epoch Context
+                var topic = await backend.GetTopic(request.TopicId);
+                topic.StartLocalAction();
+                var v = topic.Version();
+                var ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
+                    request.ProducerId, request.SequenceNum);
+                var result = new EnqueueResult
+                {
+                    NumAdded = ok ? request.Events.Count : 0
+                };
+                topic.EndAction();
+                writeQueue.Add((v, topic, result));
+            }
+        }
+        finally
+        {
+            writeQueue.CompleteAdding();
+        }
+    }
+
+    public override async Task EnqueueEventsStreamSpeculative(IAsyncStreamReader<EnqueueRequest> requestStream,
+        IServerStreamWriter<EnqueueResult> responseStream,
+        ServerCallContext context)
+    {
+        while (await requestStream.MoveNext())
+        {
+            var request = requestStream.Current;
+            // TODO(Tianyu): Create Epoch Context
+            var topic = await backend.GetTopic(request.TopicId);
+            // Speculative code path
+            if (!await topic.TryReceiveAndStartActionAsync(request.DprHeader))
+                // Use an error to signal to caller that this call cannot proceed
+                // TODO(Tianyu): add more descriptive exception information
+                throw new RpcException(Status.DefaultCancelled);
+            var ok = topic.Enqueue(request.Events.Select(e => new EventDataAdapter { data = e }),
+                request.ProducerId, request.SequenceNum);
+            var result = new EnqueueResult
+            {
+                NumAdded = ok ? request.Events.Count : 0
+            };
+            result.DprHeader = PopulateHeaderAndEndAction(topic);
+            await responseStream.WriteAsync(result);
         }
     }
 
@@ -286,7 +416,6 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
         else
         {
             topic.StartLocalAction(epochContext);
-            var wl = topic.WorldLine();
             var v = topic.Version();
             var status = topic.Step(request.IncarnationId, requestBuilder.FinishStep());
             var result = new StepResult
@@ -303,11 +432,124 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             };
             topic.EndAction(epochContext);
             stepRequestPool.Return(requestObject);
-            await topic.DprCommit(wl, v);
+            await topic.DprCommit(v);
             return result;
         }
     }
 
+    public override async Task StepStream(IAsyncStreamReader<StepRequest> requestStream,
+        IServerStreamWriter<StepResult> responseStream, ServerCallContext context)
+    {
+        var writeQueue = new AsyncCollection<(long, Darq, StepResult)>();
+        _ = Task.Run(async () =>
+        {
+            while (await writeQueue.OutputAvailableAsync())
+            {
+                var (v, darq, result) = writeQueue.Take();
+                await darq.DprCommit(v);
+                await responseStream.WriteAsync(result);
+            }
+        });
+
+        try
+        {
+            while (await requestStream.MoveNext(context.CancellationToken))
+            {
+                var request = requestStream.Current;
+                var topic = await backend.GetTopic(request.TopicId);
+                // TODO(Tianyu): Pick the appropriate context 
+                LightEpoch.EpochContext epochContext = null;
+
+                var requestObject = stepRequestPool.Checkout();
+                var requestBuilder = new StepRequestBuilder(requestObject);
+                foreach (var consumed in request.ConsumedMessageOffsets)
+                    requestBuilder.MarkMessageConsumed(consumed);
+                foreach (var self in request.RecoveryMessages)
+                    requestBuilder.AddRecoveryMessage(self.Span);
+                foreach (var outBatch in request.OutMessages)
+                {
+                    if (outBatch.TopicId == request.TopicId)
+                        requestBuilder.AddSelfMessage(outBatch.Event);
+                    else
+                        requestBuilder.AddOutMessage(new DarqId(outBatch.TopicId), outBatch.Event);
+                }
+
+                Debug.Assert(request.DprHeader.IsEmpty);
+                topic.StartLocalAction(epochContext);
+                var v = topic.Version();
+                var status = topic.Step(request.IncarnationId, requestBuilder.FinishStep());
+                var result = new StepResult
+                {
+                    Status = status switch
+                    {
+                        // Should never happen
+                        StepStatus.INCOMPLETE => throw new NotImplementedException(),
+                        StepStatus.SUCCESS => DarqStepStatus.Success,
+                        StepStatus.INVALID => DarqStepStatus.Invalid,
+                        StepStatus.REINCARNATED => DarqStepStatus.Reincarnated,
+                        _ => throw new ArgumentOutOfRangeException()
+                    }
+                };
+                topic.EndAction(epochContext);
+                stepRequestPool.Return(requestObject);
+                writeQueue.Add((v, topic, result));
+            }
+        }
+        finally
+        {
+            writeQueue.CompleteAdding();
+        }
+    }
+
+    public override async Task StepStreamSpeculative(IAsyncStreamReader<StepRequest> requestStream,
+        IServerStreamWriter<StepResult> responseStream,
+        ServerCallContext context)
+    {
+        while (await requestStream.MoveNext(context.CancellationToken))
+        {
+            var request = requestStream.Current;
+            var topic = await backend.GetTopic(request.TopicId);
+            // TODO(Tianyu): Pick the appropriate context 
+            LightEpoch.EpochContext epochContext = null;
+
+            var requestObject = stepRequestPool.Checkout();
+            var requestBuilder = new StepRequestBuilder(requestObject);
+            foreach (var consumed in request.ConsumedMessageOffsets)
+                requestBuilder.MarkMessageConsumed(consumed);
+            foreach (var self in request.RecoveryMessages)
+                requestBuilder.AddRecoveryMessage(self.Span);
+            foreach (var outBatch in request.OutMessages)
+            {
+                if (outBatch.TopicId == request.TopicId)
+                    requestBuilder.AddSelfMessage(outBatch.Event);
+                else
+                    requestBuilder.AddOutMessage(new DarqId(outBatch.TopicId), outBatch.Event);
+            }
+
+            Debug.Assert(!request.DprHeader.IsEmpty);
+            // Speculative code path
+            if (!await topic.TryReceiveAndStartActionAsync(request.DprHeader, epochContext))
+                // Use an error to signal to caller that this call cannot proceed
+                // TODO(Tianyu): add more descriptive exception information
+                throw new RpcException(Status.DefaultCancelled);
+            var status = topic.Step(request.IncarnationId, requestBuilder.FinishStep());
+            var result = new StepResult
+            {
+                Status = status switch
+                {
+                    // Should never happen
+                    StepStatus.INCOMPLETE => throw new NotImplementedException(),
+                    StepStatus.SUCCESS => DarqStepStatus.Success,
+                    StepStatus.INVALID => DarqStepStatus.Invalid,
+                    StepStatus.REINCARNATED => DarqStepStatus.Reincarnated,
+                    _ => throw new ArgumentOutOfRangeException()
+                }
+            };
+            result.DprHeader = PopulateHeaderAndEndAction(topic);
+            stepRequestPool.Return(requestObject);
+            await responseStream.WriteAsync(result);
+        }
+    }
 
     private unsafe bool TryReadOneEntry(DarqScanIterator scanner, out Event ev)
     {
@@ -361,9 +603,11 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                 if (ev == null) continue;
                 if (ev.NextOffset >= lastCommitted)
                 {
+                    long version = 0;
                     try
                     {
                         topic.StartLocalAction();
+                        version = topic.Version();
                         // Avoid repeatedly wait for the newest commit
                         lastCommitted = topic.Tail;
                         session.DependOn(topic);
@@ -374,7 +618,10 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
                     }
 
                     if (!request.Speculative)
-                        await session.SpeculationBarrier(topic.GetDprFinder());
+                    {
+                        Debug.Assert(version != 0);
+                        await topic.DprCommit(version);
+                    }
                 }
 
                 if (request.Speculative)
@@ -392,7 +639,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
             }
         }
     }
-    
+
     public override async Task<RegisterProcessorResult> RegisterProcessor(RegisterProcessorRequest request,
         ServerCallContext context)
     {

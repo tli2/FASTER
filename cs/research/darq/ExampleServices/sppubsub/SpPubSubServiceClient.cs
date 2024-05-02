@@ -22,7 +22,7 @@ public class SpPubSubServiceClient
         this.clusterMap = clusterMap;
     }
 
-    private ValueTask<GrpcChannel> GetOrCreateConnection(int topicId)
+    public ValueTask<GrpcChannel> GetOrCreateConnection(int topicId)
     {
         if (openConnections.TryGetValue(topicId, out var result)) return ValueTask.FromResult(result);
         return ValueTask.FromResult(openConnections[topicId] = GrpcChannel.ForAddress(clusterMap[topicId].Item2));

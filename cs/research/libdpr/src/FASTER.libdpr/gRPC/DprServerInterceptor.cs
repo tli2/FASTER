@@ -47,11 +47,10 @@ namespace FASTER.libdpr.gRPC
                 // Non speculative code path
                 _stateObject.StartLocalAction();
                 var version = _stateObject.Version();
-                var worldLine = _stateObject.WorldLine();
                 var response = await continuation.Invoke(request, context);
                 _stateObject.EndAction();
                 // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
-                await _stateObject.DprCommit(worldLine, version);
+                await _stateObject.DprCommit(version);
                 return response;
             }
         }
