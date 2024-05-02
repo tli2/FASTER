@@ -51,7 +51,7 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
+        // GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
 
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
@@ -188,10 +188,9 @@ public class Program
         builder.Services.AddSingleton<StateObject>(sp => sp.GetService<Darq>());
 
         var connectionPool = new ConcurrentDictionary<int, GrpcChannel>();
-        var stepRequestPool = new SimpleObjectPool<StepRequest>(() => new StepRequest(), maxObjects: 1024);
-
+        // var stepRequestPool = new SimpleObjectPool<StepRequest>(() => new StepRequest(), maxObjects: 1024);
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, stepRequestPool, connectionPool, environment, options.Speculative, logger) } };
+            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, connectionPool, environment, options.Speculative, logger) } };
         builder.Services.AddSingleton(new OrchestartorBackgroundProcessingServiceSettings
         {
             workflowFactories = workflowFactories,
