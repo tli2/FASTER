@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -105,6 +106,13 @@ namespace FASTER.libdpr
                     {
                         so.versions.TryRemove(fromState.Version, out var deps);
                         var workerVersion = new WorkerVersion(so.options.Me, fromState.Version);
+                        // TODO(Tianyu): Hack to early commit non-speculative work
+                        if (deps.Count() == 1)
+                        {
+                            so.versionTcs.TryRemove(toState.Version, out var tcs);
+                            tcs.SetResult();
+                        }
+
                         so.options.DprFinder.ReportNewPersistentVersion(so.worldLine, workerVersion, deps);
                         so.dependencySetPool.Return(deps);
                         checkpointComplete = true;
