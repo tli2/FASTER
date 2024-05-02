@@ -59,7 +59,7 @@ namespace FASTER.client
             session = darq.DetachFromWorker();
             currentProducerClient = settings.producerFactory?.Invoke(settings.speculative ? session : null);
             completionTracker = new DarqCompletionTracker();
-            iterator = darq.StartBackgroundScan();
+            iterator = darq.StartBackgroundScan(settings.speculative);
         }
 
         public long ProcessingLag => darq.log.TailAddress - processedUpTo;

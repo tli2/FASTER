@@ -157,7 +157,7 @@ namespace FASTER.darq
             session = new DprSession();
             capabilities = new Capabilities(this);
             processor.OnRestart(capabilities);
-            iterator = darq.StartScan();
+            iterator = darq.StartScan(speculative);
         }
         
         /// <inheritdoc/>

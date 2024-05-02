@@ -18,9 +18,9 @@ namespace FASTER.libdpr
         private GCHandle? handle = null;
         private bool hideRecoveryMessages;
 
-        internal DarqScanIterator(FasterLog log, long replayEnd, bool hideRecoveryMessages = true)
+        internal DarqScanIterator(FasterLog log, long replayEnd, bool speculative = true, bool hideRecoveryMessages = true)
         {
-            iterator = log.Scan(0, long.MaxValue, scanUncommitted: true);
+            iterator = log.Scan(0, long.MaxValue, scanUncommitted: speculative);
             recoveryMessages = new Queue<(long, long, byte[])>();
             replayMessages = new Dictionary<long, long>();
             this.replayEnd = replayEnd;

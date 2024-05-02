@@ -585,7 +585,7 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
     {
         var topic = await backend.GetTopic(request.TopicId);
         topic.StartLocalAction();
-        var scanner = topic.StartScan();
+        var scanner = topic.StartScan(request.Speculative);
         var session = topic.DetachFromWorkerAndPauseAction();
         var buffer = new byte[1 << 10];
 
