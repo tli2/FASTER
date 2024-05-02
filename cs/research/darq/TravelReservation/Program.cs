@@ -53,8 +53,8 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        var environment = new LocalDebugEnvironment();
-        // var environment = new KubernetesLocalStorageEnvironment(true);
+        // var environment = new LocalDebugEnvironment();
+        var environment = new KubernetesLocalStorageEnvironment(true);
 
         switch (options.Type.Trim())
         {
