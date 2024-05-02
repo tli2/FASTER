@@ -53,13 +53,13 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private List<ReservationRequest> toExecute = new();
     private TaskCompletionSource<bool> tcs = new();
     private IDarqProcessorClientCapabilities capabilities;
+    private SimpleObjectPool<StepRequest> stepRequestPool;
     private ConcurrentDictionary<int, GrpcChannel> connectionPool;
     private IEnvironment environment;
     private bool speculative;
     private ILogger logger;
-    private StepRequest reusedRequest;
 
-    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input, 
+    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input, SimpleObjectPool<StepRequest> stepRequestPool, 
         ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative, ILogger logger)
     {
         var messageString = Encoding.UTF8.GetString(input);
@@ -77,10 +77,10 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         }
 
         this.connectionPool = connectionPool;
+        this.stepRequestPool = stepRequestPool;
         this.environment = environment;
         this.speculative = speculative;
         this.logger = logger;
-        reusedRequest = new StepRequest();
     }
 
     public async Task<ExecuteWorkflowResult> GetResult(CancellationToken token)
@@ -98,7 +98,8 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         if (m.GetMessageBody().Length == sizeof(long))
         {
             // Then this is the initial message, bootstrap the state machine and begin execution
-            var requestBuilder = new StepRequestBuilder(reusedRequest);
+            var stepRequest = stepRequestPool.Checkout();
+            var requestBuilder = new StepRequestBuilder(stepRequest);
 
             requestBuilder.AddSelfMessage(new ActivityDarqEntry
             {
@@ -108,8 +109,13 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
             requestBuilder.MarkMessageConsumed(m.GetLsn());
             m.Dispose();
-            var valueTask = capabilities.Step(requestBuilder.FinishStep());
-            if (!valueTask.IsCompleted) valueTask.AsTask().GetAwaiter().GetResult();
+
+            // Will always be completed synchronously
+            Task.Run(async () =>
+            {
+                await capabilities.Step(requestBuilder.FinishStep());
+                stepRequestPool.Return(stepRequest);
+            });
             return;
         }
 
@@ -148,7 +154,8 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             // logger.LogInformation($"Workflow with id {workflowId} is starting reservation number {index}");
             var result = await client.MakeReservationAsync(toExecute[index]);
             // logger.LogInformation($"Workflow with id {workflowId} has completed reservation number {index}");
-            var requestBuilder = new StepRequestBuilder(reusedRequest);
+            var stepRequest = stepRequestPool.Checkout();
+            var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
             requestBuilder.AddSelfMessage(new ActivityDarqEntry
             {
@@ -158,7 +165,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                     : ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
                 index = result.Ok ? index + 1 : index - 1
             });
+            // Will always be completed synchronously
             await c.Step(requestBuilder.FinishStep());
+            stepRequestPool.Return(stepRequest);
         });
     }
 
@@ -184,7 +193,8 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             // logger.LogInformation($"Workflow with id {workflowId} is cancelling reservation number {index}");
             await client.CancelReservationAsync(toExecute[index]);
             // logger.LogInformation($"Workflow with id {workflowId} has cancelled reservation number {index}");
-            var requestBuilder = new StepRequestBuilder(reusedRequest);
+            var stepRequest = stepRequestPool.Checkout();
+            var requestBuilder = new StepRequestBuilder(stepRequest);
             requestBuilder.MarkMessageConsumed(lsn);
             requestBuilder.AddSelfMessage(new ActivityDarqEntry
             {
@@ -194,6 +204,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             });
             // Will always be completed synchronously
             await c.Step(requestBuilder.FinishStep());
+            stepRequestPool.Return(stepRequest);
         });
     }
 
