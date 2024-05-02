@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Runtime;
 using System.Text;
 using CommandLine;
 using FASTER.client;
@@ -50,6 +51,8 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
+        GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
+
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
