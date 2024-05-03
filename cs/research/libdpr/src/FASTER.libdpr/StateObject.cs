@@ -616,7 +616,6 @@ namespace FASTER.libdpr
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
-
                 rateLimiter.Release();
             }
 

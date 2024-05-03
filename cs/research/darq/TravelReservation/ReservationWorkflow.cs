@@ -59,8 +59,12 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private bool speculative;
     private ILogger logger;
 
-    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input, SimpleObjectPool<StepRequest> stepRequestPool, 
-        ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative, ILogger logger)
+    private static SemaphoreSlim rateLimiter =
+        new SemaphoreSlim(Environment.ProcessorCount * 2, Environment.ProcessorCount * 2);
+
+    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input, SimpleObjectPool<StepRequest> stepRequestPool,
+        ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative,
+        ILogger logger)
     {
         var messageString = Encoding.UTF8.GetString(input);
         var split = messageString.Split(',');
@@ -110,18 +114,15 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             requestBuilder.MarkMessageConsumed(m.GetLsn());
             m.Dispose();
 
-            // Will always be completed synchronously
-            Task.Run(async () =>
-            {
-                await capabilities.Step(requestBuilder.FinishStep());
-                stepRequestPool.Return(stepRequest);
-            });
+            var t = capabilities.Step(requestBuilder.FinishStep());
+            if (!t.IsCompleted) t.AsTask().GetAwaiter().GetResult();
+            stepRequestPool.Return(stepRequest);
             return;
         }
 
         Debug.Assert(m.GetMessageType() == DarqMessageType.IN);
         var lsn = m.GetLsn();
-        var type = (ReservationWorkflowMessageTypes) m.GetMessageBody()[sizeof(long)];
+        var type = (ReservationWorkflowMessageTypes)m.GetMessageBody()[sizeof(long)];
         var index = BitConverter.ToInt32(
             m.GetMessageBody()[(sizeof(long) + sizeof(ReservationWorkflowMessageTypes))..]);
         if (type == ReservationWorkflowMessageTypes.RESERVATION_START)
@@ -142,6 +143,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         }
 
         var c = capabilities;
+        rateLimiter.Wait();
         Task.Run(async () =>
         {
             var channel = connectionPool.GetOrAdd(index,
@@ -168,6 +170,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             // Will always be completed synchronously
             await c.Step(requestBuilder.FinishStep());
             stepRequestPool.Return(stepRequest);
+            rateLimiter.Release();
         });
     }
 
@@ -180,7 +183,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             tcs.SetResult(false);
             return;
         }
+
         var c = capabilities;
+        rateLimiter.Wait();
         Task.Run(async () =>
         {
             var channel = connectionPool.GetOrAdd(index,
@@ -205,6 +210,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
             // Will always be completed synchronously
             await c.Step(requestBuilder.FinishStep());
             stepRequestPool.Return(stepRequest);
+            rateLimiter.Release();
         });
     }
 
