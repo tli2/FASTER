@@ -33,7 +33,7 @@ spec:
             - "-w"
             - "{{.Values.experiment}}/workloads/{{.Values.workload}}.txt"
             - "-o"
-            - "{{.Values.experiment}}-{{.Values.workload}}-results-c{{.Values.checkpoint_interval}}{{- if $.Values.speculative }}speculative{{- end }}"
+            - "{{.Values.experiment}}-{{.Values.workload}}-results-c{{.Values.checkpoint_interval}}{{.Values.tag}}"
           image: tianyuli96/faster:latest
           name: client
           ports:

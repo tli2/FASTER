@@ -3,6 +3,7 @@ results_conn_string: foo
 experiment: EventProcessing-latency
 workload: placeholder
 checkpoint_interval: 10
+tag: default
 
 workers:
   - num: 0
