@@ -23,7 +23,6 @@ spec:
       initContainers:
         - name: wait-for-dprfinder{{ .num }}
           image: bitnami/kubectl
-          imagePullPolicy: IfNotPresent
           command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
       containers:
         - command:
@@ -39,7 +38,6 @@ spec:
             - "-s"
             {{- end }}
           image: tianyuli96/faster:latest
-          imagePullPolicy: IfNotPresent
           name: pubsub{{ .num }}
           ports:
             - containerPort: 15721
