@@ -45,7 +45,7 @@ namespace FASTER.darq
             {
                 // If step results in a version mismatch, rely on the scan to trigger a rollback for simplicity
                 if (!await parent.darq.TakeOnDependencyAndStartActionAsync(session))
-                    return StepStatus.REINCARNATED;
+                    throw new DprSessionRolledBackException(parent.darq.WorldLine());
                 var status = parent.darq.Step(parent.incarnation, request);
                 parent.darq.EndAction();
                 return status;

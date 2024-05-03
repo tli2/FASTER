@@ -40,7 +40,7 @@ namespace FASTER.libdpr
         private bool connected;
 
         private long largestRequestedCheckpointVersion = -1;
-        private SemaphoreSlim rateLimiter = new(Environment.ProcessorCount, Environment.ProcessorCount);
+        private SemaphoreSlim rateLimiter = new(1, 1);
 
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {
@@ -416,15 +416,14 @@ namespace FASTER.libdpr
             // Apply the commit ordering rule, taking checkpoints if necessary.
             if (v > versionScheme.CurrentState().Version)
             {
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 await rateLimiter.WaitAsync();
                 while (v > versionScheme.CurrentState().Version)
                 {
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
-
                 rateLimiter.Release();
             }
 
@@ -463,11 +462,11 @@ namespace FASTER.libdpr
 
             if (v > versionScheme.CurrentState().Version)
             {
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 await rateLimiter.WaitAsync();
                 while (v > versionScheme.CurrentState().Version)
                 {
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
@@ -509,11 +508,11 @@ namespace FASTER.libdpr
             // Apply the commit ordering rule, taking checkpoints if necessary.
             if (v > versionScheme.CurrentState().Version)
             {
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 rateLimiter.Wait();
                 while (v > versionScheme.CurrentState().Version)
                 {
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
@@ -556,11 +555,11 @@ namespace FASTER.libdpr
 
             if (v > versionScheme.CurrentState().Version)
             {
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 rateLimiter.Wait();
                 while (v > versionScheme.CurrentState().Version)
                 {
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
@@ -609,11 +608,11 @@ namespace FASTER.libdpr
 
             if (v > versionScheme.CurrentState().Version)
             {
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 await rateLimiter.WaitAsync();
                 while (v > versionScheme.CurrentState().Version)
                 {
                     // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                     BeginCheckpoint(largestRequestedCheckpointVersion);
                     Thread.Yield();
                 }
