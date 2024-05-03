@@ -16,6 +16,7 @@ spec:
       initContainers:
         - name: wait-pubsub
           image: bitnami/kubectl
+          imagePullPolicy: IfNotPresent
           command: [ "sh", "-c" ]
           args:
             - >

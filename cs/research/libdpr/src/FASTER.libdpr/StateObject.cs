@@ -44,7 +44,7 @@ namespace FASTER.libdpr
         private long largestRequestedCheckpointVersion = -1;
         private TaskCompletionSource nextVersionBegin = new(TaskCreationOptions.RunContinuationsAsynchronously);
         // TODO(Tianyu): Used for recovery now -- convert to task based similar to commit path
-        private SemaphoreSlim rateLimiter = new SemaphoreSlim(1, 1);
+        private SemaphoreSlim rateLimiter = new(1, 1);
 
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {

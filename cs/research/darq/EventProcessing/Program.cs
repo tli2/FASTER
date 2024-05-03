@@ -37,7 +37,7 @@ public class Options
         HelpText = "identifier of the service to launch")]
     public int HostId { get; set; }
     
-    [Option('s', "speculative", Required = false, Default = true,
+    [Option('s', "speculative", Required = false, Default = false,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     

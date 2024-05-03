@@ -10,6 +10,7 @@ spec:
       initContainers:
         - name: wait-all
           image: bitnami/kubectl
+          imagePullPolicy: IfNotPresent
           command: [ "sh", "-c" ]
           args:
             - >
