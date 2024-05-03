@@ -51,13 +51,12 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
 
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        IEnvironment environment = new LocalDebugEnvironment();
-        // var environment = new KubernetesLocalStorageEnvironment(true);
+        // IEnvironment environment = new LocalDebugEnvironment();
+        var environment = new KubernetesLocalStorageEnvironment(true);
         // var environment = new KubernetesLocalStorageEnvironmentForRecovery();
         
         switch (options.Type.Trim())

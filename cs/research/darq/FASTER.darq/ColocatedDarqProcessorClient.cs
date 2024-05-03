@@ -100,7 +100,7 @@ namespace FASTER.darq
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ProcessResult TryConsumeNext<T>(T processor) where T : IDarqProcessor
+        private async ValueTask<ProcessResult> TryConsumeNext<T>(T processor) where T : IDarqProcessor
         {
             try
             {
@@ -128,7 +128,7 @@ namespace FASTER.darq
                     if (!speculative)
                     {
                         Debug.Assert(version != 0);
-                        darq.DprCommit(version).GetAwaiter().GetResult();
+                        await darq.DprCommit(version);
                     }
                 }
                 
@@ -175,7 +175,7 @@ namespace FASTER.darq
                     ProcessResult result;
                     do
                     {
-                        result = TryConsumeNext(processor);
+                        result = await TryConsumeNext(processor);
                     } while (result == ProcessResult.CONTINUE);
 
                     if (result == ProcessResult.TERMINATED)

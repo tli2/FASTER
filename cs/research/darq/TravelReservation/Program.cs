@@ -4,7 +4,6 @@ using System.Net;
 using System.Runtime;
 using System.Text;
 using CommandLine;
-using FASTER.client;
 using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
@@ -51,7 +50,7 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
+        // GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
 
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;

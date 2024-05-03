@@ -60,7 +60,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private ILogger logger;
 
     private static SemaphoreSlim rateLimiter =
-        new SemaphoreSlim(Environment.ProcessorCount * 2, Environment.ProcessorCount * 2);
+        new SemaphoreSlim(Environment.ProcessorCount * 4, Environment.ProcessorCount * 4);
 
     public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input, SimpleObjectPool<StepRequest> stepRequestPool,
         ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative,

@@ -165,7 +165,7 @@ namespace FASTER.libdpr
         /// <returns> A task that completes when the next commit is recoverable</returns>
         public ValueTask DprCommit(long version)
         {
-            if (versionTcs.TryGetValue(version, out var tcs)) 
+            if (versionTcs.TryGetValue(version, out var tcs))
                 return new ValueTask(tcs.Task);
             return ValueTask.CompletedTask;
         }
