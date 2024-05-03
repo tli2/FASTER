@@ -51,7 +51,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
 {
     private long workflowId;
     private List<ReservationRequest> toExecute = new();
-    private TaskCompletionSource<bool> tcs = new();
+    private TaskCompletionSource<bool> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private IDarqProcessorClientCapabilities capabilities;
     private SimpleObjectPool<StepRequest> stepRequestPool;
     private ConcurrentDictionary<int, GrpcChannel> connectionPool;

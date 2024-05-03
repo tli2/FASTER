@@ -6,10 +6,12 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.core;
 using Google.Protobuf;
+using Microsoft.Extensions.Options;
 
 namespace FASTER.libdpr
 {
@@ -40,7 +42,9 @@ namespace FASTER.libdpr
         private bool connected;
 
         private long largestRequestedCheckpointVersion = -1;
-        private SemaphoreSlim rateLimiter = new(1, 1);
+        private TaskCompletionSource nextVersionBegin = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        // TODO(Tianyu): Used for recovery now -- convert to task based similar to commit path
+        private SemaphoreSlim rateLimiter = new SemaphoreSlim(1, 1);
 
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {
@@ -124,12 +128,17 @@ namespace FASTER.libdpr
                     if (fromState.Version != 0) newDeps.Update(so.options.Me, fromState.Version);
                     var success = so.versions.TryAdd(toState.Version, newDeps);
                     Debug.Assert(success);
-                    so.versionTcs.TryAdd(toState.Version, new TaskCompletionSource());
+                    so.versionTcs.TryAdd(toState.Version, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                 }
             }
 
             public override void AfterEnteringState(VersionSchemeState state)
             {
+                if (state.Phase == IN_PROG)
+                {
+                    so.nextVersionBegin.SetResult();
+                    so.nextVersionBegin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                }
             }
         }
 
@@ -219,7 +228,7 @@ namespace FASTER.libdpr
             if (vOld != 0)
                 deps.Update(options.Me, vOld);
             var success = versions.TryAdd(vNew, deps);
-            versionTcs.TryAdd(vNew, new TaskCompletionSource());
+            versionTcs.TryAdd(vNew, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 
             Debug.Assert(success);
             worldLine = newWorldLine;
@@ -260,7 +269,7 @@ namespace FASTER.libdpr
                         if (vOld != 0)
                             newDeps.Update(options.Me, vOld);
                         var success = versions.TryAdd(vNew, newDeps);
-                        versionTcs.TryAdd(vNew, new TaskCompletionSource());
+                        versionTcs.TryAdd(vNew, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                         Debug.Assert(success);
                         worldLine = newWorldLine;
                     }
@@ -315,7 +324,7 @@ namespace FASTER.libdpr
             {
                 var deps = dependencySetPool.Checkout();
                 var success = versions.TryAdd(1, deps);
-                versionTcs.TryAdd(1, new TaskCompletionSource());
+                versionTcs.TryAdd(1, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                 Debug.Assert(success);
             }
 
@@ -343,6 +352,9 @@ namespace FASTER.libdpr
         {
             var currentTime = sw.ElapsedMilliseconds;
             var lastCommitted = CommittedVersion();
+
+            if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
+                BeginCheckpoint(largestRequestedCheckpointVersion);
 
             if (lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
             {
@@ -417,14 +429,8 @@ namespace FASTER.libdpr
             if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                await rateLimiter.WaitAsync();
                 while (v > versionScheme.CurrentState().Version)
-                {
-                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    BeginCheckpoint(largestRequestedCheckpointVersion);
-                    Thread.Yield();
-                }
-                rateLimiter.Release();
+                    await nextVersionBegin.Task;
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
@@ -440,6 +446,7 @@ namespace FASTER.libdpr
                     BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
                 versionScheme.Enter(context);
             }
@@ -463,15 +470,8 @@ namespace FASTER.libdpr
             if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                await rateLimiter.WaitAsync();
                 while (v > versionScheme.CurrentState().Version)
-                {
-                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    BeginCheckpoint(largestRequestedCheckpointVersion);
-                    Thread.Yield();
-                }
-
-                rateLimiter.Release();
+                    await nextVersionBegin.Task;
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
@@ -509,15 +509,8 @@ namespace FASTER.libdpr
             if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                rateLimiter.Wait();
                 while (v > versionScheme.CurrentState().Version)
-                {
-                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    BeginCheckpoint(largestRequestedCheckpointVersion);
-                    Thread.Yield();
-                }
-
-                rateLimiter.Release();
+                    nextVersionBegin.Task.GetAwaiter().GetResult();
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
@@ -556,15 +549,8 @@ namespace FASTER.libdpr
             if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                rateLimiter.Wait();
                 while (v > versionScheme.CurrentState().Version)
-                {
-                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    BeginCheckpoint(largestRequestedCheckpointVersion);
-                    Thread.Yield();
-                }
-
-                rateLimiter.Release();
+                    nextVersionBegin.Task.GetAwaiter().GetResult();
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
@@ -609,14 +595,8 @@ namespace FASTER.libdpr
             if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
-                await rateLimiter.WaitAsync();
                 while (v > versionScheme.CurrentState().Version)
-                {
-                    // TODO(Tianyu): Should provide version that does not take checkpoints on the spot?
-                    BeginCheckpoint(largestRequestedCheckpointVersion);
-                    Thread.Yield();
-                }
-                rateLimiter.Release();
+                    await nextVersionBegin.Task;
             }
 
             // Enter protected region so the world-line does not shift while we determine whether a message is safe to consume
