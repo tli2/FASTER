@@ -53,7 +53,8 @@ namespace FASTER.libdpr
         public void Update(DprWorkerId dprWorkerId, long version)
         {
             ref var originalVersion = ref dependentVersions[dprWorkerId.guid];
-            core.Utility.MonotonicUpdate(ref originalVersion, version, out _);
+            if (originalVersion < version)
+                core.Utility.MonotonicUpdate(ref originalVersion, version, out _);
         }
 
         /// <summary>

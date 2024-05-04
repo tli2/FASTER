@@ -108,7 +108,7 @@ public class Program
             }
         }
 
-        var prevSession = so.DetachFromWorker();
+        var session = so.DetachFromWorker(true);
         var headerBytes = stackalloc byte[DprMessageHeader.FixedLenSize];
         for (var i = 0; i < numOps; i++)
         {
@@ -123,8 +123,8 @@ public class Program
                     so.ProduceTagAndEndAction(new Span<byte>(headerBytes, 1 << 10));
                     break;
                 case 2:
-                    so.TryMergeAndStartAction(prevSession);
-                    prevSession = so.DetachFromWorkerAndPauseAction();
+                    so.TakeOnDependencyAndStartAction(session);
+                    session = so.DetachFromWorkerAndPauseAction(allocate: true);
                     break;
                 default:
                     throw new NotImplementedException();

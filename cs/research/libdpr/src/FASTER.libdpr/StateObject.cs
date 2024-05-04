@@ -660,15 +660,15 @@ namespace FASTER.libdpr
             return DprMessageHeader.FixedLenSize;
         }
 
-        public DprSession DetachFromWorker()
+        public DprSession DetachFromWorker(bool allocate = false)
         {
-            var session = sessionPool.Checkout();
+            var session = allocate ? new DprSession() : sessionPool.Checkout();
             session.UnsafeReset(this);
             return session;
         }
 
 
-        public DprSession DetachFromWorkerAndPauseAction(LightEpoch.EpochContext context = null)
+        public DprSession DetachFromWorkerAndPauseAction(LightEpoch.EpochContext context = null, bool allocate = false)
         {
             var session = DetachFromWorker();
             EndAction(context);

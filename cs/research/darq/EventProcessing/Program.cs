@@ -76,12 +76,12 @@ public class Program
                 await LaunchDprFinder(options, environment);
                 break;
             case "generate":
-                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing\\workloads\\events-10k-long.txt")
+                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing-latency\\workloads\\events-100k.txt")
                     .SetSearchTermRelevantProb(0.2)
-                    .SetTrendParameters(0.1, 5000, 2500)
+                    .SetTrendParameters(0.1, 10000, 5000)
                     .SetSearchTermLength(80)
-                    .SetThroughput(10000)
-                    .SetNumSearchTerms(10000 * 120)
+                    .SetThroughput(100000)
+                    .SetNumSearchTerms(100000 * 30)
                     .Generate();
                 break;
             default:
