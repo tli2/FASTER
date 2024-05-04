@@ -158,7 +158,8 @@ public class SpPubSubServiceClient
     public AsyncServerStreamingCall<pubsub.Event> ReadEventsFromTopic(ReadEventsRequest request,
         DprSession session = null, DateTime? deadline = null, CancellationToken cancellationToken = default)
     {
-        var channel = GetOrCreateConnection(request.TopicId).GetAwaiter().GetResult();
+        var task = GetOrCreateConnection(request.TopicId);
+        var channel = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
         if (session == null)
         {
             var client = new SpPubSub.SpPubSubClient(channel);

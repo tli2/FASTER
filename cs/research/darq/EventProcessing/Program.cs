@@ -102,7 +102,7 @@ public class Program
         await measurementProcessor.workloadTerminationed.Task;
         var throughput = numRecords * 1000.0 / stopwatch.ElapsedMilliseconds;
         await WriteLatencyResults(options, environment, measurementProcessor);
-        await WriteOtherResults(options, environment, throughput, measurementProcessor.totalBytesWritten);
+        await WriteOtherResults(options, environment, throughput, measurementProcessor.totalBytesWritten, measurementProcessor);
     }
 
     private static async Task WriteLatencyResults(Options options, IEnvironment environment, SearchListLatencyMeasurementProcessor processor)
@@ -117,11 +117,36 @@ public class Program
         await environment.PublishResultsAsync($"{options.OutputName}-lat.csv", memoryStream);
     }
     
-    private static async Task WriteOtherResults(Options options, IEnvironment environment, double throughput, long bytesWritten)
+    private static double ComputePercentile(List<long> data, double percentile)
     {
+        data.Sort();
+
+        double position = percentile * (data.Count + 1);
+        int integerPart = (int)position;
+        double fractionalPart = position - integerPart;
+
+        if (integerPart == 0)
+            return data.First();
+        if (integerPart >= data.Count)
+            return data.Last();
+
+        double lower = data[integerPart - 1];
+        double upper = data[integerPart];
+        return lower + fractionalPart * (upper - lower);
+    }
+    
+    private static async Task WriteOtherResults(Options options, IEnvironment environment, double throughput, long bytesWritten, SearchListLatencyMeasurementProcessor processor)
+    {
+        var latencies = processor.results.Select(line => line.Value.Item2 - line.Value.Item1).ToList();
+        var p50 = ComputePercentile(latencies, 0.5);
+        var p95 = ComputePercentile(latencies, 0.95);
+
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
         streamWriter.WriteLine($"Throughput: {throughput}");
+        streamWriter.WriteLine($"P50 Latency: {p50}");
+        streamWriter.WriteLine($"P95 Latency: {p95}");
+
         streamWriter.WriteLine($"BytesWritten: {bytesWritten}");
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
