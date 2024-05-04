@@ -330,7 +330,7 @@ namespace FASTER.darq
         /// <returns></returns>
         public DarqScanIterator StartScan(bool speculative = true) => new(log, largestSteppedLsn.value, speculative);
         
-        public DarqScanIterator StartBackgroundScan(bool speculative = true) => new(log, 0, false, speculative);
+        public DarqScanIterator StartBackgroundScan(bool speculative = true) => new(log, 0, speculative: speculative, false);
         
 
         public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
