@@ -111,6 +111,8 @@ public class CommitLogBackgroundService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         so.ConnectToCluster(out _);
+        // Use a large number to force participants to synchronize on their commit schedule on the first message
+        so.ForceCheckpoint(100000);
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
     }
 }

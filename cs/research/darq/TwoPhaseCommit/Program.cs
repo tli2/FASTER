@@ -74,7 +74,7 @@ public class Program
 
     private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
-        var numTransactionsToRun = 10000;
+        var numTransactionsToRun = 30000;
         var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
         var sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         var channels = new List<GrpcChannel>();
@@ -84,7 +84,7 @@ public class Program
         var coordinator =
             new CommitCoordinatorService.CommitCoordinatorServiceClient(
                 GrpcChannel.ForAddress(environment.GetCoordinatorConnString()));
-        var measurements = new ConcurrentBag<long>();
+        var measurements = new ConcurrentDictionary<long, long>();
         var stopwatch = Stopwatch.StartNew();
         var rateLimiter = new SemaphoreSlim(options.Window, options.Window);
         for (var i = 0; i < numTransactionsToRun; i++)
@@ -110,6 +110,7 @@ public class Program
                 TxnId = i
             };
             var startTime = stopwatch.ElapsedTicks;
+            var startTimeMilli = stopwatch.ElapsedMilliseconds;
             _ = Task.Run(async () =>
             {
                 // Console.WriteLine($"Starting transaction number {transaction.TxnId}");
@@ -127,22 +128,14 @@ public class Program
 
                     // Commit is non-speculative
                     var response = await coordinator.CommitAsync(new TransactionsRequest(transaction));
-                    if (response.Success)
-                    {
-                        var endTime = stopwatch.ElapsedTicks;
-                        measurements.Add(endTime - startTime);
-                    }
-                    else
-                    {
-                        measurements.Add(-1);
-                    }
+                    measurements[startTimeMilli] = response.Success ? stopwatch.ElapsedTicks - startTime : -1;
 
                 }
                 catch (Exception e1)
                 {
                     // Console.WriteLine($"transaction {transaction.TxnId} threw exception {e1.Message} -- treating as an abort");
                     // negative to indicate abort
-                    measurements.Add(-1);
+                    measurements[startTimeMilli] = -1;
                 }
                 finally
                 {
@@ -157,17 +150,16 @@ public class Program
         await WriteResults(options, environment, measurements);
     }
 
-    private static async Task WriteResults(Options options, IEnvironment environment,ConcurrentBag<long> measurements)
+    private static async Task WriteResults(Options options, IEnvironment environment,ConcurrentDictionary<long, long> measurements)
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
         var aborted = 0;
         foreach (var line in measurements)
         {
-            if (line > 0)
-                streamWriter.WriteLine(line * 1000.0 / Stopwatch.Frequency);
-            else
+            if (line.Value < 0)
                 aborted++;
+            streamWriter.WriteLine($"{line.Key}, {line.Value}");
         }
         streamWriter.WriteLine($"Aborted: {aborted} out of {measurements.Count}");
         await streamWriter.FlushAsync();
@@ -206,7 +198,7 @@ public class Program
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             CheckpointPeriodMilli = 5,
-            RefreshPeriodMilli = 5
+            RefreshPeriodMilli = 2
         });
         
         var channels = new List<GrpcChannel>();
@@ -301,7 +293,7 @@ public class Program
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             CheckpointPeriodMilli = 5,
-            RefreshPeriodMilli = 5
+            RefreshPeriodMilli = 2
         });
 
         // TODO(Tianyu): Switch to epoch after testing
