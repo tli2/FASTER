@@ -1,0 +1,55 @@
+{{- range .Values.workers }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    type: pubsub
+    service: pubsub{{ .num }}
+  name: pubsub{{ .num }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: pubsub{{ .num }}
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        type: pubsub
+        service: pubsub{{ .num }}
+    spec:
+      priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
+      initContainers:
+        - name: wait-for-dprfinder{{ .num }}
+          image: bitnami/kubectl
+          command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
+      containers:
+        - command:
+            - "EventProcessing/EventProcessing"
+          args:
+            - "-t"
+            - "worker"
+            - "-h"
+            - "{{ .num }}"
+            - "-i"
+            - "{{ $.Values.checkpoint_interval }}"
+          image: tianyuli96/faster:latest
+          name: pubsub{{ .num }}
+          ports:
+            - containerPort: 15721
+          volumeMounts:
+            - name: pubsub{{ .num }}storage
+              mountPath: "/mnt/plrs"
+          envFrom:
+            - configMapRef:
+                name: env-config
+      volumes:
+        - name: pubsub{{ .num }}storage
+          persistentVolumeClaim:
+            claimName: pubsub{{ .num }}-pvc
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always
+---
+{{- end }}

@@ -1,0 +1,69 @@
+syntax = "proto3";
+option csharp_namespace = "protobuf";
+
+
+service DarqGrpcService {
+  rpc RegisterProcessor(RegisterProcessorRequest) returns (RegisterProcessorResult);
+  rpc Step(DarqStepRequest) returns (DarqStepResult);
+  rpc Enqueue(DarqEnqueueRequest) returns (DarqEnqueueResult);
+  rpc Poll(DarqPollRequest) returns (DarqPollResult);
+}
+
+message RegisterProcessorRequest {
+}
+
+message RegisterProcessorResult {
+  int64 incarnationId = 1;
+}
+
+message DarqOutMessage {
+  int64 recipient = 1;
+  bytes message = 2;
+}
+
+message DarqStepRequest {
+  int64 incarnationId = 1;
+  repeated int64 consumedMessages = 2;
+  repeated DarqOutMessage outMessages = 3;
+  repeated bytes selfMessages = 4;
+}
+
+enum DarqStepStatus {
+  SUCCESS = 0;
+  INVALID = 1;
+  REINCARNATED = 2;
+}
+
+message DarqStepResult {
+  DarqStepStatus status = 1;
+}
+
+message DarqEnqueueRequest {
+  bytes message = 1;
+  int64 producerId = 2;
+  int64 lsn = 3;
+}
+
+message DarqEnqueueResult {
+  bool ok = 1;
+}
+
+message DarqPollRequest {
+  int64 incarnationId = 1;
+  int32 maxBatchSize = 2;
+}
+
+enum DarqMessageType {
+  IN = 0;
+  SELF = 2;
+}
+
+message DarqMessage {
+  DarqMessageType type = 1;
+  bytes messsageBody = 2;
+}
+
+message DarqPollResult {
+  bool ok = 1;
+  repeated DarqMessage messages = 2;
+}

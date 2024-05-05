@@ -1,0 +1,14 @@
+{{- range .Values.workers }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pubsub{{ .num }}-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: premium-lrs
+  resources:
+    requests:
+      storage: 10Gi
+---
+{{- end }}

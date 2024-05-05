@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+option csharp_namespace = "DB";
+
+service TransactionProcessor {
+    rpc Read (ReadRequest) returns (ReadReply);
+    rpc EnqueueWorkload (EnqueueWorkloadRequest) returns (EnqueueWorkloadReply);
+    rpc WriteWalEntry (WalRequest) returns (WalReply);
+    rpc ReadSecondary (ReadSecondaryRequest) returns (ReadSecondaryReply);
+    rpc PopulateTables (PopulateTablesRequest) returns (PopulateTablesReply);
+    // rpc Update (WriteRequest) returns (WriteReply);
+    // rpc Insert (WriteRequest) returns (WriteReply);
+    // rpc Begin (BeginRequest) returns (BeginReply);
+    // rpc Commit (CommitRequest) returns (CommitReply);
+    // rpc Prepare (PrepareRequest) returns (PrepareReply);
+}
+
+message PbPrimaryKey {
+    repeated int64 keys = 1;
+    int32 table = 2;
+}
+
+message ReadRequest {
+    PbPrimaryKey key = 1;
+    int64 tid = 3; // tid of transaction context 
+    int64 partitionId = 10;
+}
+
+message ReadReply {
+    bytes value = 1;
+}
+
+message ReadSecondaryRequest {
+    bytes key = 1;
+    int32 table = 2;
+    int64 tid = 3; // tid of transaction context 
+    int64 partitionId = 10;
+}
+
+message ReadSecondaryReply {
+    bytes value = 1;
+    PbPrimaryKey key = 2;
+}
+
+message PopulateTablesRequest {
+    // benchmarkCfg
+    int32 seed = 1;
+    double ratio = 2;
+    int32 threadCount = 3;
+    int32 attrCount = 4;
+    int32 perThreadDataCount = 5;
+    int32 iterationCount = 6;
+    int32 perTransactionCount = 8;
+    int32 nCommitterThreads = 9;
+    // tpcCfg
+    int32 numWh = 10;
+    int32 numDistrict = 11;
+    int32 numCustomer = 12;
+    int32 numOrder = 13;
+    int32 numItem = 14;
+    int32 numStock = 15;
+    int32 newOrderCrossPartitionProbability = 16;
+    int32 paymentCrossPartitionProbability = 17;
+    int32 partitionsPerThread = 18;
+}
+
+message PopulateTablesReply {
+    bool success = 1;
+}
+
+message EnqueueWorkloadRequest {
+    string workload = 1;
+}
+
+message EnqueueWorkloadReply {
+    bool success = 1;
+}
+
+message WalRequest {
+    bytes message = 1;
+    int64 tid = 2;
+    int64 lsn = 3;
+    int64 partitionId = 10;
+}
+
+message WalReply {
+    bool success = 1;
+}

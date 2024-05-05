@@ -2100,6 +2100,7 @@ namespace FASTER.core
                     ShiftFlushedUntilAddress();
                     continue;
                 }
+                
 
                 // Partial page starting point, need to wait until the
                 // ongoing adjacent flush is completed to ensure correctness
@@ -2123,7 +2124,9 @@ namespace FASTER.core
                     }
                 }
                 else
+                {
                     WriteAsync(flushPage, AsyncFlushPageCallback, asyncResult);
+                }
             }
         }
 

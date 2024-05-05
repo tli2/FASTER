@@ -387,6 +387,39 @@ namespace FASTER.core
             return result;
         }
 
+        
+        public bool TryTakeDprStyleCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist, out Guid token)
+        {
+            CommitCookie = metadata.ToArray();
+            var backend = new FoldOverCheckpointTask(onPersist);
+            var stateMachine = new HybridLogCheckpointStateMachine(backend, version);
+            var success = StartStateMachine(stateMachine);
+            token = _hybridLogCheckpointToken;
+            if (!success) return false;
+            Debug.Assert(!epoch.ThisInstanceProtected());
+            while (true)
+            {
+                try
+                {
+                    epoch.Resume();
+                    var systemState = this.systemState;
+                    if (systemState.Version == stateMachine.ToVersion())
+                        return true;
+                    ThreadStateMachineStep<Empty, Empty, Empty, NullFasterSession>(null, NullFasterSession.Instance, null);
+                }
+                catch (Exception)
+                {
+                    this._indexCheckpoint.Reset();
+                    this._hybridLogCheckpoint.Dispose();
+                    throw;
+                }
+                finally
+                {
+                    epoch.Suspend();
+                }
+            }
+        }
+
         /// <summary>
         /// Take log-only checkpoint
         /// </summary>

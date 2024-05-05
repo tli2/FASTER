@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <LangVersion>latest</LangVersion>
+        <Platforms>AnyCPU;x64</Platforms>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+        <Company>Microsoft</Company>
+        <Product>Microsoft</Product>
+        <Description>This is a pre-release test build for libDPR, a project under Microsoft's FASTER</Description>
+        <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageProjectUrl>https://github.com/microsoft/FASTER</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/microsoft/FASTER</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageTags>FASTER</PackageTags>
+        <PackageReleaseNotes>See the project website at https://github.com/microsoft/FASTER for more details</PackageReleaseNotes>
+        <SignAssembly>false</SignAssembly>
+        <Version>1.0.1</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\..\remote\src\FASTER.common\FASTER.common.csproj" />
+      <ProjectReference Include="..\..\..\..\src\core\FASTER.core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf" Version="3.25.0" />
+        <PackageReference Include="Grpc.AspNetCore" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Net.Client" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Tools" Version="2.59.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Protobuf Include="management\gRPC\finder.proto" GrpcServices="Server,Client" />
+    </ItemGroup>
+</Project>

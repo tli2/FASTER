@@ -17,38 +17,121 @@ namespace FASTER.core
         /// <summary>
         /// Store thread-static metadata separately; see https://github.com/microsoft/FASTER/pull/746
         /// </summary>
-        private class Metadata
+        public class EpochContext
         {
             /// <summary>
             /// Managed thread id of this thread
             /// </summary>
-            [ThreadStatic]
-            internal static int threadId;
+            [ThreadStatic] internal static int threadId;
 
             /// <summary>
             /// Start offset to reserve entry in the epoch table
             /// </summary>
-            [ThreadStatic]
-            internal static ushort startOffset1;
+            [ThreadStatic] internal static ushort threadLocalStartOffset1;
 
             /// <summary>
             /// Alternate start offset to reserve entry in the epoch table (to reduce probing if <see cref="startOffset1"/> slot is already filled)
             /// </summary>
-            [ThreadStatic]
-            internal static ushort startOffset2;
+            [ThreadStatic] internal static ushort threadLocalStartOffset2;
 
             /// <summary>
             /// A thread's entry in the epoch table.
             /// </summary>
-            [ThreadStatic]
-            internal static int threadEntryIndex;
+            [ThreadStatic] internal static int threadLocalThreadEntryIndex;
 
             /// <summary>
             /// Number of instances using this entry
             /// </summary>
-            [ThreadStatic]
-            internal static int threadEntryIndexCount;
+            [ThreadStatic] internal static int threadLocalEntryIndexCount;
+
+            /// <summary>
+            /// custom id of this epochParticipant,
+            /// </summary>
+            public int customId;
+
+            internal ushort startOffset1;
+            internal ushort startOffset2;
+            internal int threadEntryIndex;
+            internal int threadEntryIndexCount;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static long GetId(EpochContext context)
+            {
+                if (context == null)
+                    return threadId;
+                // Ensure threadId and customId are complete disjoint
+                return ((long)context.customId << 32) | 1L;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static ushort GetStartOffset1(EpochContext context) =>
+                context?.startOffset1 ?? threadLocalStartOffset1;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static ushort GetStartOffset2(EpochContext context) =>
+                context?.startOffset2 ?? threadLocalStartOffset2;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static int GetThreadEntryIndex(EpochContext context) =>
+                context?.threadEntryIndex ?? threadLocalThreadEntryIndex;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static int GetThreadEntryIndexCount(EpochContext context) =>
+                context?.threadEntryIndexCount ?? threadLocalEntryIndexCount;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static void SetThreadEntryIndex(EpochContext context, int i)
+            {
+                if (context == null)
+                    threadLocalThreadEntryIndex = i;
+                else
+                    context.threadEntryIndex = i;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static void SetStartOffset1(EpochContext context, ushort i)
+            {
+                if (context == null)
+                    threadLocalStartOffset1 = i;
+                else
+                    context.startOffset1 = i;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static void SetStartOffset2(EpochContext context, ushort i)
+            {
+                if (context == null)
+                    threadLocalStartOffset2 = i;
+                else
+                    context.startOffset2 = i;
+            }
+            
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static int IncrementThreadIndexEntryCount(EpochContext context)
+            {
+                if (context == null)
+                    return ++threadLocalEntryIndexCount;
+                return ++context.threadEntryIndexCount;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static int DecrementThreadIndexEntryCount(EpochContext context)
+            {
+                if (context == null)
+                    return --threadLocalEntryIndexCount;
+                return --context.threadEntryIndexCount;
+            }
+            
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static void InvalidateContext(EpochContext context)
+            {
+                if (context == null)
+                    threadLocalThreadEntryIndex = 0;
+                else 
+                    context.threadEntryIndex = 0;
+            }        
         }
+
 
         /// <summary>
         /// Size of cache line in bytes
@@ -74,6 +157,7 @@ namespace FASTER.core
         /// Thread protection status entries.
         /// </summary>
         readonly Entry[] tableRaw;
+
         readonly Entry* tableAligned;
 #if !NET5_0_OR_GREATER
         GCHandle tableHandle;
@@ -90,6 +174,7 @@ namespace FASTER.core
         /// Marked volatile to ensure latest value is seen by the last suspended thread.
         /// </summary>
         volatile int drainCount = 0;
+
         readonly EpochActionPair[] drainList = new EpochActionPair[kDrainListSize];
 
         /// <summary>
@@ -169,14 +254,15 @@ namespace FASTER.core
         /// Check whether current epoch instance is protected on this thread
         /// </summary>
         /// <returns>Result of the check</returns>
-        public bool ThisInstanceProtected()
+        public bool ThisInstanceProtected(EpochContext context = null)
         {
-            int entry = Metadata.threadEntryIndex;
+            int entry = EpochContext.GetThreadEntryIndex(context);
             if (kInvalidIndex != entry)
             {
-                if ((*(tableAligned + entry)).threadId == entry)
+                if ((*(tableAligned + entry)).contextId == entry)
                     return true;
             }
+
             return false;
         }
 
@@ -185,12 +271,12 @@ namespace FASTER.core
         /// </summary>
         /// <returns>Current epoch</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void ProtectAndDrain()
+        public void ProtectAndDrain(EpochContext context = null)
         {
-            int entry = Metadata.threadEntryIndex;
+            int entry = EpochContext.GetThreadEntryIndex(context);
 
             // Protect CurrentEpoch by making an entry for it in the non-static epoch table so ComputeNewSafeToReclaimEpoch() will see it.
-            (*(tableAligned + entry)).threadId = Metadata.threadEntryIndex;
+            (*(tableAligned + entry)).contextId = entry;
             (*(tableAligned + entry)).localCurrentEpoch = CurrentEpoch;
 
             if (drainCount > 0)
@@ -203,29 +289,30 @@ namespace FASTER.core
         /// Thread suspends its epoch entry
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Suspend()
+        public void Suspend(EpochContext context = null)
         {
-            Release();
-            if (drainCount > 0) SuspendDrain();
+            Release(context);
+            if (drainCount > 0) SuspendDrain(context);
         }
 
         /// <summary>
         /// Thread resumes its epoch entry
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Resume()
+        public void Resume(EpochContext context = null)
         {
-            Acquire();
-            ProtectAndDrain();
+            Acquire(context);
+            ProtectAndDrain(context);
         }
 
         /// <summary>
         /// Increment global current epoch
         /// </summary>
         /// <returns></returns>
-        long BumpCurrentEpoch()
+        long BumpCurrentEpoch(EpochContext context = null)
         {
-            Debug.Assert(this.ThisInstanceProtected(), "BumpCurrentEpoch must be called on a protected thread");
+            // TODO(Tianyu): Temporarily disabling because DARQ relies on bumping outside of protection
+            // Debug.Assert(this.ThisInstanceProtected(), "BumpCurrentEpoch must be called on a protected thread");
             long nextEpoch = Interlocked.Increment(ref CurrentEpoch);
 
             if (drainCount > 0)
@@ -240,9 +327,9 @@ namespace FASTER.core
         /// </summary>
         /// <param name="onDrain">Trigger action</param>
         /// <returns></returns>
-        public void BumpCurrentEpoch(Action onDrain)
+        public void BumpCurrentEpoch(Action onDrain, EpochContext context = null)
         {
-            long PriorEpoch = BumpCurrentEpoch() - 1;
+            long PriorEpoch = BumpCurrentEpoch(context) - 1;
 
             int i = 0;
             while (true)
@@ -250,7 +337,8 @@ namespace FASTER.core
                 if (drainList[i].epoch == long.MaxValue)
                 {
                     // This was an empty slot. If it still is, assign this action/epoch to the slot.
-                    if (Interlocked.CompareExchange(ref drainList[i].epoch, long.MaxValue - 1, long.MaxValue) == long.MaxValue)
+                    if (Interlocked.CompareExchange(ref drainList[i].epoch, long.MaxValue - 1, long.MaxValue) ==
+                        long.MaxValue)
                     {
                         drainList[i].action = onDrain;
                         drainList[i].epoch = PriorEpoch;
@@ -265,7 +353,8 @@ namespace FASTER.core
                     if (triggerEpoch <= SafeToReclaimEpoch)
                     {
                         // This was a slot with an epoch that was safe to reclaim. If it still is, execute its trigger, then assign this action/epoch to the slot.
-                        if (Interlocked.CompareExchange(ref drainList[i].epoch, long.MaxValue - 1, triggerEpoch) == triggerEpoch)
+                        if (Interlocked.CompareExchange(ref drainList[i].epoch, long.MaxValue - 1, triggerEpoch) ==
+                            triggerEpoch)
                         {
                             var triggerAction = drainList[i].action;
                             drainList[i].action = onDrain;
@@ -279,14 +368,14 @@ namespace FASTER.core
                 if (++i == kDrainListSize)
                 {
                     // We are at the end of the drain list and found no empty or reclaimable slot. ProtectAndDrain, which should clear one or more slots.
-                    ProtectAndDrain();
+                    ProtectAndDrain(context);
                     i = 0;
                     Thread.Yield();
                 }
             }
 
             // Now ProtectAndDrain, which may execute the action we just added.
-            ProtectAndDrain();
+            ProtectAndDrain(context);
         }
 
         /// <summary>
@@ -297,10 +386,10 @@ namespace FASTER.core
         /// <param name="version">Version</param>
         /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Mark(int markerIdx, long version)
+        public void Mark(int markerIdx, long version, EpochContext context = null)
         {
             Debug.Assert(markerIdx < 6);
-            (*(tableAligned + Metadata.threadEntryIndex)).markers[markerIdx] = version;
+            (*(tableAligned + EpochContext.GetThreadEntryIndex(context))).markers[markerIdx] = version;
         }
 
         /// <summary>
@@ -328,6 +417,7 @@ namespace FASTER.core
                     }
                 }
             }
+
             return true;
         }
 
@@ -361,7 +451,7 @@ namespace FASTER.core
         /// Take care of pending drains after epoch suspend
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        void SuspendDrain()
+        void SuspendDrain(EpochContext context)
         {
             while (drainCount > 0)
             {
@@ -376,8 +466,9 @@ namespace FASTER.core
                         return;
                     }
                 }
-                Resume();
-                Release();
+
+                Resume(context);
+                Release(context);
             }
         }
 
@@ -396,7 +487,8 @@ namespace FASTER.core
 
                 if (trigger_epoch <= SafeToReclaimEpoch)
                 {
-                    if (Interlocked.CompareExchange(ref drainList[i].epoch, long.MaxValue - 1, trigger_epoch) == trigger_epoch)
+                    if (Interlocked.CompareExchange(ref drainList[i].epoch, long.MaxValue - 1, trigger_epoch) ==
+                        trigger_epoch)
                     {
                         // Store off the trigger action, then set epoch to int.MaxValue to mark this slot as "available for use".
                         var trigger_action = drainList[i].action;
@@ -416,39 +508,38 @@ namespace FASTER.core
         /// Thread acquires its epoch entry
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        void Acquire()
+        void Acquire(EpochContext context)
         {
-            if (Metadata.threadEntryIndex == kInvalidIndex)
-                Metadata.threadEntryIndex = ReserveEntryForThread();
+            if (EpochContext.GetThreadEntryIndex(context) == kInvalidIndex)
+                ReserveEntryForThread(context);
 
-            Debug.Assert((*(tableAligned + Metadata.threadEntryIndex)).localCurrentEpoch == 0,
+            Debug.Assert((*(tableAligned + EpochContext.GetThreadEntryIndex(context))).localCurrentEpoch == 0,
                 "Trying to acquire protected epoch. Make sure you do not re-enter FASTER from callbacks or IDevice implementations. If using tasks, use TaskCreationOptions.RunContinuationsAsynchronously.");
 
             // This corresponds to AnyInstanceProtected(). We do not mark "ThisInstanceProtected" until ProtectAndDrain().
-            Metadata.threadEntryIndexCount++;
+            EpochContext.IncrementThreadIndexEntryCount(context);
         }
 
         /// <summary>
         /// Thread releases its epoch entry
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        void Release()
+        void Release(EpochContext context)
         {
-            int entry = Metadata.threadEntryIndex;
+            int entry = EpochContext.GetThreadEntryIndex(context);
 
             Debug.Assert((*(tableAligned + entry)).localCurrentEpoch != 0,
                 "Trying to release unprotected epoch. Make sure you do not re-enter FASTER from callbacks or IDevice implementations. If using tasks, use TaskCreationOptions.RunContinuationsAsynchronously.");
 
             // Clear "ThisInstanceProtected()" (non-static epoch table)
             (*(tableAligned + entry)).localCurrentEpoch = 0;
-            (*(tableAligned + entry)).threadId = 0;
+            (*(tableAligned + entry)).contextId = 0;
 
             // Decrement "AnyInstanceProtected()" (static thread table)
-            Metadata.threadEntryIndexCount--;
-            if (Metadata.threadEntryIndexCount == 0)
+            if (EpochContext.DecrementThreadIndexEntryCount(context) == 0)
             {
-                (threadIndexAligned + Metadata.threadEntryIndex)->threadId = 0;
-                Metadata.threadEntryIndex = kInvalidIndex;
+                (threadIndexAligned + EpochContext.GetThreadEntryIndex(context))->contextId = 0;
+                EpochContext.InvalidateContext(context);
             }
         }
 
@@ -457,48 +548,67 @@ namespace FASTER.core
         /// thread will ever have ID 0.
         /// </summary>
         /// <returns>Reserved entry</returns>
-        static int ReserveEntry()
+        static void ReserveEntry(EpochContext context)
         {
             while (true)
             {
                 // Try to acquire entry
-                if (0 == (threadIndexAligned + Metadata.startOffset1)->threadId)
+                if (0 == (threadIndexAligned + EpochContext.GetStartOffset1(context))->contextId)
                 {
                     if (0 == Interlocked.CompareExchange(
-                        ref (threadIndexAligned + Metadata.startOffset1)->threadId,
-                        Metadata.threadId, 0))
-                        return Metadata.startOffset1;
+                            ref (threadIndexAligned + EpochContext.GetStartOffset1(context))->contextId,
+                            EpochContext.GetId(context), 0))
+                    {
+                        EpochContext.SetThreadEntryIndex(context, EpochContext.GetStartOffset1(context));
+                        return;
+                    }
                 }
 
-                if (Metadata.startOffset2 > 0)
+                if (EpochContext.GetStartOffset2(context) > 0)
                 {
                     // Try alternate entry
-                    Metadata.startOffset1 = Metadata.startOffset2;
-                    Metadata.startOffset2 = 0;
+                    EpochContext.SetStartOffset1(context, EpochContext.GetStartOffset2(context));
+                    EpochContext.SetStartOffset2(context, 0);
                 }
-                else Metadata.startOffset1++; // Probe next sequential entry
-                if (Metadata.startOffset1 > kTableSize)
+                else
                 {
-                    Metadata.startOffset1 -= kTableSize;
+                    // Probe next sequential entry
+                    EpochContext.SetStartOffset1(context, (ushort) (EpochContext.GetStartOffset1(context) + 1));
+                }
+
+                if (EpochContext.GetStartOffset1(context)> kTableSize)
+                {
+                    EpochContext.SetStartOffset1(context, (ushort)(EpochContext.GetStartOffset1(context) - kTableSize));
                     Thread.Yield();
                 }
             }
         }
 
-        /// <summary>
-        /// A 32-bit murmur3 implementation.
-        /// </summary>
-        /// <param name="h"></param>
-        /// <returns></returns>
-        static int Murmur3(int h)
+        // TODO(Tianyu): This is GPT-generated so double check before merging
+        static int Murmur3Long(long value)
         {
-            uint a = (uint)h;
-            a ^= a >> 16;
-            a *= 0x85ebca6b;
-            a ^= a >> 13;
-            a *= 0xc2b2ae35;
-            a ^= a >> 16;
-            return (int)a;
+            ulong h = (ulong)value;
+
+            // Mixing initial bits
+            h ^= h >> 33;
+            h *= 0xff51afd7ed558ccdUL;
+            h ^= h >> 33;
+            h *= 0xc4ceb9fe1a85ec53UL;
+            h ^= h >> 33;
+
+            // Since we need to return an int, and our hash is 64 bits, we mix down to 32 bits.
+            uint high = (uint)(h >> 32);
+            uint low = (uint)h;
+            uint mixed = high ^ low;
+
+            // Final mix functions similar to the int version
+            mixed ^= mixed >> 16;
+            mixed *= 0x85ebca6b;
+            mixed ^= mixed >> 13;
+            mixed *= 0xc2b2ae35;
+            mixed ^= mixed >> 16;
+
+            return (int)mixed;
         }
 
         /// <summary>
@@ -506,16 +616,23 @@ namespace FASTER.core
         /// once for a thread.
         /// </summary>
         /// <returns>Reserved entry</returns>
-        static int ReserveEntryForThread()
+        static void ReserveEntryForThread(EpochContext context)
         {
-            if (Metadata.threadId == 0) // run once per thread for performance
+            if (context == null && EpochContext.threadId == 0)
             {
-                Metadata.threadId = Environment.CurrentManagedThreadId;
-                uint code = (uint)Murmur3(Metadata.threadId);
-                Metadata.startOffset1 = (ushort)(1 + (code % kTableSize));
-                Metadata.startOffset2 = (ushort)(1 + ((code >> 16) % kTableSize));
+                EpochContext.threadId = Environment.CurrentManagedThreadId;
+                uint code = (uint)Murmur3Long(EpochContext.GetId(context));
+                EpochContext.threadLocalStartOffset1 = (ushort)(1 + (code % kTableSize));
+                EpochContext.threadLocalStartOffset2 = (ushort)(1 + ((code >> 16) % kTableSize));
             }
-            return ReserveEntry();
+            else if (context != null)
+            {
+                uint code = (uint)Murmur3Long(EpochContext.GetId(context));
+                context.startOffset1 = (ushort)(1 + (code % kTableSize));
+                context.startOffset2 = (ushort)(1 + ((code >> 16) % kTableSize));
+            }
+
+            ReserveEntry(context);
         }
 
         /// <summary>
@@ -527,29 +644,25 @@ namespace FASTER.core
             /// <summary>
             /// Thread-local value of epoch
             /// </summary>
-            [FieldOffset(0)]
-            public long localCurrentEpoch;
+            [FieldOffset(0)] public long localCurrentEpoch;
 
             /// <summary>
             /// ID of thread associated with this entry.
             /// </summary>
-            [FieldOffset(8)]
-            public int threadId;
+            [FieldOffset(8)] public long contextId;
 
-            [FieldOffset(12)]
-            public int reentrant;
+            [FieldOffset(16)] public fixed long markers[6];
 
-            [FieldOffset(16)]
-            public fixed long markers[6];
-
-            public override string ToString() => $"lce = {localCurrentEpoch}, tid = {threadId}, re-ent {reentrant}";
+            public override string ToString() => $"lce = {localCurrentEpoch}, tid = {contextId}";
         }
+
         struct EpochActionPair
         {
             public long epoch;
             public Action action;
 
-            public override string ToString() => $"epoch = {epoch}, action = {(action is null ? "n/a" : action.Method.ToString())}";
+            public override string ToString() =>
+                $"epoch = {epoch}, action = {(action is null ? "n/a" : action.Method.ToString())}";
         }
     }
 }

@@ -1,0 +1,55 @@
+{{- range .Values.orchestrators }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    service: "orchestrator"
+  name: "orchestrator{{ .num }}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: "orchestrator"
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        service: "orchestrator"
+    spec:
+      priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
+      initContainers:
+        - name: wait-for-dprfinder{{ .num }}
+          image: bitnami/kubectl
+          command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
+      containers:
+        - command:
+            - "TravelReservation/TravelReservation"
+          args: 
+            - "-t"
+            - "orchestrator"
+            - "-n"
+            - "{{ .num }}"
+            {{- if $.Values.speculative }}
+            - "-s"
+            {{- end }}
+          image: tianyuli96/faster:latest
+          name: "orchestrator{{ .num }}"
+          ports:
+            - containerPort: {{ $.Values.orchestrator_port }}
+            - containerPort: 4022
+          volumeMounts:
+            - name: orchestratorstorage{{ .num }}
+              mountPath: "/mnt/plrs"
+          envFrom:
+            - configMapRef:
+                name: env-config
+      volumes:
+        - name: orchestratorstorage{{ .num }}
+          persistentVolumeClaim:
+            claimName: orchestrator{{ .num }}-pvc
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always
+---
+{{- end }}

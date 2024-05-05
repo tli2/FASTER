@@ -142,7 +142,7 @@ namespace FASTER.core
         public void PurgeAll();
 
         /// <summary>
-        /// Initiatize manager on recovery (e.g., deleting other checkpoints)
+        /// Initialize manager on recovery (e.g., deleting other checkpoints)
         /// </summary>
         /// <param name="indexToken"></param>
         /// <param name="logToken"></param>

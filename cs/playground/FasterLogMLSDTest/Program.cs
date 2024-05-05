@@ -4,7 +4,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using FASTER.core;
 
 namespace FasterLogStress
@@ -16,27 +18,55 @@ namespace FasterLogStress
         static readonly byte[] entry = new byte[100];
         private static string commitPath;
 
-        public static void Main()
+        private static byte[] buffer;
+
+        public static async Task Main()
         {
-            commitPath = "FasterLogStress/";
+            using var settings = new FasterLogSettings("./Test", deleteDirOnDispose: true)
+            {
+                AutoRefreshSafeTailAddress = true
+            };
+            log = new FasterLog(settings);
 
-            // Clean up log files from previous test runs in case they weren't cleaned up
-            // We loop to ensure clean-up as deleteOnClose does not always work for MLSD
-            while (Directory.Exists(commitPath))
-                Directory.Delete(commitPath, true);
+            buffer = new byte[2048];
+            Random.Shared.NextBytes(buffer);
 
-            // Create devices \ log for test
-            device = new ManagedLocalStorageDevice(commitPath + "ManagedLocalStore.log", deleteOnClose: true);
-            log = new FasterLog(new FasterLogSettings { LogDevice = device, PageSizeBits = 12, MemorySizeBits = 14 });
-
-            ManagedLocalStoreBasicTest();
-
+            await Task.WhenAll(EnqueueThread(), ScanThread());
             log.Dispose();
-            device.Dispose();
+        }
+        
+        static async Task EnqueueThread()
+        {
+            for (int count = 0; count < 5; ++count)
+            {
+                await log.EnqueueAsync(buffer);
+                await Task.Delay(1000);
+            }
 
-            // Clean up log files
-            if (Directory.Exists(commitPath))
-                Directory.Delete(commitPath, true);
+            log.CompleteLog();
+            Console.WriteLine("Enqueue complete");
+        }
+
+        static async Task ScanThread()
+        {
+            using var iterator = log.Scan(log.BeginAddress, long.MaxValue, scanUncommitted: true);
+            while (true)
+            {
+                byte[] result;
+                while (!iterator.GetNext(out result, out _, out _))
+                {
+                    if (iterator.Ended)
+                    {
+                        Console.WriteLine("Scan complete");
+                        return;
+                    }
+
+                    await iterator.WaitAsync();
+                }
+    
+                Console.WriteLine("Received buffer");
+                Debug.Assert(result.SequenceEqual(buffer));
+            }
         }
 
 

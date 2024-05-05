@@ -1,0 +1,16 @@
+conn_string: foo
+results_conn_string: foo
+experiment: EventProcessing-latency
+workload: placeholder
+checkpoint_interval: 10
+
+workers:
+  - num: 0
+  - num: 1
+
+processors:
+  - name: aggregate
+  - name: detection
+  - name: filter
+    
+speculative: false

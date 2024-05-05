@@ -1,0 +1,19 @@
+conn_string: foo
+results_conn_string: foo
+experiment: TravelReservation-latency
+workload: workload-tiny
+window: 32
+
+services:
+  - num: 0
+    port: 15721
+
+orchestrator_port: 15721
+
+orchestrators:
+  - num: 1
+
+clients:
+  - num: 0
+
+speculative: false

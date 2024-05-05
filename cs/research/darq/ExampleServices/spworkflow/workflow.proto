@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+service WorkflowOrchestrator {
+  rpc ExecuteWorkflow(ExecuteWorkflowRequest) returns (ExecuteWorkflowResult);
+}
+
+message ExecuteWorkflowRequest {
+  int64 workflowId = 1;
+  int32 workflowClassId = 2;
+  bytes input = 3;
+}
+
+message ExecuteWorkflowResult {
+  bool ok = 1;
+  bytes result = 2;
+}

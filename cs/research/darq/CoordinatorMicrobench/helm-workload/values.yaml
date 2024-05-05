@@ -1,0 +1,16 @@
+conn_string: foo
+results_conn_string: foo
+
+num_workers: 1
+dep_prob: 0.2
+
+workers:
+  - num: 0
+  - num: 1
+  - num: 2
+  - num: 3    
+  - num: 4
+  - num: 5
+  - num: 6
+  - num: 7
+    

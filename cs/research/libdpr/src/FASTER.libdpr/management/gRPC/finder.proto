@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+option csharp_namespace = "FASTER.libdpr.proto";
+
+message WorkerVersion {
+  int64 id = 1;
+  int64 version = 2;
+}
+
+message AddWorkerRequest {
+  int64 id = 1;
+}
+
+message AddWorkerResponse {
+  int64 id = 1;
+  int64 worldLine = 2;
+  int64 recoveredVersion = 3;
+}
+
+message RemoveWorkerRequest {
+  int64 id = 1;
+}
+
+message RemoveWorkerResponse {
+  bool ok = 1;
+}
+
+message NewCheckpointRequest {
+  int64 id = 1;
+  int64 version = 2;
+  int64 worldLine = 3;
+  repeated WorkerVersion deps = 4;
+}
+
+message NewCheckpointResponse {
+  bool ok = 1;
+}
+
+message SyncRequest {
+  int64 id = 1;
+}
+
+message SyncResponse {
+  int64 worldLine = 1;
+  repeated WorkerVersion worldLinePrefix = 2;
+  repeated WorkerVersion currentCut = 3;
+}
+
+message ResendGraphRequest {
+  int64 id = 1;
+  repeated NewCheckpointRequest graphNodes = 2;
+}
+
+message ResendGraphResponse {
+  bool ok = 1;
+}
+
+
+// TODO(Tianyu): Investigate whether streaming variants will make these more efficient
+service DprFinder {
+  rpc AddWorker(AddWorkerRequest) returns (AddWorkerResponse);
+  
+  rpc RemoveWorker(RemoveWorkerRequest) returns (RemoveWorkerResponse);
+  
+  rpc NewCheckpoint(NewCheckpointRequest) returns (NewCheckpointResponse);
+  
+  rpc Sync(SyncRequest) returns (SyncResponse);
+  
+  rpc ResendGraph(ResendGraphRequest) returns (ResendGraphResponse);
+}

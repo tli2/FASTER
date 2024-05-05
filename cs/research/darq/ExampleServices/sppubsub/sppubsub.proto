@@ -1,0 +1,88 @@
+syntax = "proto3";
+option csharp_namespace = "pubsub";
+
+message RegisterProcessorRequest {
+  int32 topicId = 1;
+}
+
+message RegisterProcessorResult {
+  int64 incarnationId = 1;
+}
+
+enum DarqMessageType {
+  IN = 0;
+  RECOVERY = 1;
+}
+
+message OutMessage {
+  int32 topicId = 1;
+  string event = 2;
+}
+
+message Event {
+  bytes dprHeader = 1;
+  DarqMessageType type = 2;
+  string data = 3;
+  int64 offset = 5;
+  int64 nextOffset = 6;
+}
+
+message StepRequest {
+  bytes dprHeader = 1;
+  int64 incarnationId = 2;
+  int32 topicId = 3;
+  repeated int64 consumedMessageOffsets = 4;
+  repeated OutMessage outMessages = 5;
+  repeated bytes recoveryMessages = 6;
+  bool fireAndForget = 7;
+}
+
+enum DarqStepStatus {
+  SUCCESS = 0;
+  INVALID = 1;
+  REINCARNATED = 2;
+}
+
+message StepResult {
+  bytes dprHeader = 1;
+  DarqStepStatus status = 2;
+}
+
+message EnqueueRequest {
+  bytes dprHeader = 1;
+  int64 producerId = 2;
+  int64 sequenceNum = 3;
+  int32 topicId = 4;
+  repeated string events = 5;
+  bool fireAndForget = 6;
+}
+
+message EnqueueResult {
+  bytes dprHeader = 1;
+  bool ok = 2;
+}
+
+message ReadEventsRequest {
+  bool speculative = 1;
+  int32 topicId = 2;
+}
+
+message GetNumBytesWrittenRequest{
+  int32 topicId = 1;
+}
+
+message GetNumBytesWrittenResult {
+  int64 numBytes = 1;
+}
+
+service SpPubSub {
+  rpc EnqueueEvents(EnqueueRequest) returns (EnqueueResult);
+  
+  rpc ReadEventsFromTopic(ReadEventsRequest) returns (stream Event);
+
+  rpc RegisterProcessor(RegisterProcessorRequest) returns (RegisterProcessorResult);
+
+  rpc Step(StepRequest) returns (StepResult);
+  
+  rpc GetNumBytesWritten(GetNumBytesWrittenRequest) returns (GetNumBytesWrittenResult);
+}

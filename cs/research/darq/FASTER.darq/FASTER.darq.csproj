@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <RootNamespace>darq</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf" Version="3.25.0" />
+        <PackageReference Include="Grpc.AspNetCore" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Net.Client" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Tools" Version="2.59.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Nito.AsyncEx" Version="5.1.2" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Protobuf Include="gRPC\proto\darq.proto" GrpcServices="Server,Client" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\remote\src\FASTER.server\FASTER.server.csproj" />
+      <ProjectReference Include="..\..\libdpr\src\FASTER.libdpr\FASTER.libdpr.csproj" />
+    </ItemGroup>
+</Project>

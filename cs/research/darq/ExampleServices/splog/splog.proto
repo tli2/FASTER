@@ -1,0 +1,42 @@
+syntax = "proto3";
+option csharp_namespace = "protobuf";
+
+message SplogAppendRequest {
+  bytes entry = 1;
+}
+
+message SplogAppendResponse {
+  bool ok = 1;
+  int64 lsn = 2;
+}
+
+message SplogScanRequest {
+  int64 startLsn = 1;
+  int64 endLsn = 2;
+  int32 maxChunkSize = 3;
+  int32 timeoutMilli = 4;
+}
+
+message SplogEntry {
+  bytes entry = 1;
+  int64 lsn = 2;
+}
+
+message SplogScanResponse {
+  repeated SplogEntry entries = 1;
+  int64 nextLsn = 2;
+}
+
+message SplogTruncateRequest {
+  int64 newStartLsn = 1;
+}
+
+message SplogTruncateResponse {
+  bool ok = 1;
+}
+
+service SplogService {
+  rpc Append(SplogAppendRequest) returns (SplogAppendResponse);
+  rpc Scan(SplogScanRequest) returns (SplogScanResponse);
+  rpc Truncate(SplogTruncateRequest) returns (SplogTruncateResponse);
+}

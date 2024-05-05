@@ -1,0 +1,12 @@
+conn_string: foo
+results_conn_string: foo
+workload: workload-small
+
+workers:
+  - num: 0
+  - num: 1
+
+processors:
+  - name: aggregate
+  - name: detection
+  - name: filter

@@ -1,0 +1,40 @@
+syntax = "proto3";
+option csharp_namespace = "protobuf";
+message Offering {
+  int64 offeringId = 1;
+  int64 entityId = 2;
+  int32 price = 4;
+  int32 remainingCount = 5;
+}
+
+message Reservation {
+  int64 reservationId = 1;
+  int64 offeringId = 2;
+  int64 customerId = 3;
+  int32 count = 4;
+}
+
+message ReservationRequest {
+  int64 reservationId = 1;
+  int64 offeringId = 2;
+  int64 customerId = 3;
+  int32 count = 4;
+}
+
+message ReservationResponse {
+  bool ok = 1;
+}
+
+message AddOfferingRequest {
+  Offering offeringToAdd = 1;
+}
+
+message AddOfferingResponse {
+  bool ok = 1;
+}
+
+service FasterKVReservationService {
+  rpc MakeReservation(ReservationRequest) returns (ReservationResponse);
+  rpc CancelReservation(ReservationRequest) returns (ReservationResponse);
+  rpc AddOffering(AddOfferingRequest) returns (AddOfferingResponse);
+}

@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <TargetFramework>net7.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>SimpleWorkflowBench</RootNamespace>
+        <ServerGarbageCollection>true</ServerGarbageCollection>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="CommandLineParser" Version="2.9.1" />
+        <PackageReference Include="Consul" Version="1.7.14.3" />
+        <PackageReference Include="Google.Protobuf" Version="3.25.0" />
+        <PackageReference Include="Grpc.AspNetCore" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Net.Client" Version="2.59.0-pre1" />
+        <PackageReference Include="Grpc.Tools" Version="2.59.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="MathNet.Numerics" Version="6.0.0-beta1" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\src\devices\AzureStorageDevice\FASTER.devices.AzureStorageDevice.csproj" />
+      <ProjectReference Include="..\..\libdpr\src\FASTER.libdpr\FASTER.libdpr.csproj" />
+      <ProjectReference Include="..\ExampleServices\ExampleServices.csproj" />
+      <ProjectReference Include="..\FASTER.darq\FASTER.darq.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Protobuf Include="distributedTransactions.proto">
+          <GrpcServices>Server, Client</GrpcServices>
+          <Access>Public</Access>
+          <ProtoCompile>True</ProtoCompile>
+          <CompileOutputs>True</CompileOutputs>
+          <OutputDir>obj\Debug\net7.0\</OutputDir>
+          <Generator>MSBuild:Compile</Generator>
+      </Protobuf>
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="helm\reservation-deployments.tpl">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+      <None Update="helm\reservation-services.tpl">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+      <None Update="helm\workflow-deployment.tpl">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+      <None Update="helm\workflow-service.tpl">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+      <None Update="helm\env-config.tpl">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+      <None Update="helm\dprfinder-deployment.yaml">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+      <None Update="helm\dprfinder-service.yaml">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+      <None Update="helm\client-jobs.tpl">
+        <DependentUpon>templates</DependentUpon>
+      </None>
+    </ItemGroup>
+
+</Project>

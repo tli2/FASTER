@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    service: dprfinder
+  name: dprfinder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: dprfinder
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        service: dprfinder
+    spec:
+      priorityClassName: high-priority
+      containers:
+        - command:
+            - "CoordinatorMicrobench/CoordinatorMicrobench"
+          args: 
+            - "-t"
+            - "dprfinder"
+            - "-o"
+            - "coordinator-microbench-result-n{{ .Values.num_workers }}-d{{ .Values.dep_prob}}.csv"
+          image: tianyuli96/faster:latest
+          name: dprfinder
+          ports:
+            - containerPort: 15721
+            - containerPort: 4022
+          envFrom:
+            - configMapRef:
+                name: env-config
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always

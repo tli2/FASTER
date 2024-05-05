@@ -1,0 +1,14 @@
+{{- range .Values.orchestrators }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: orchestrator{{ .num }}-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: premium-lrs
+  resources:
+    requests:
+      storage: 5Gi
+---
+{{- end }}

@@ -328,7 +328,7 @@ namespace FASTER.devices
         {
             foreach (var entry in blobs)
             {
-                entry.Value.PageBlob.Default?.Delete();
+                entry.Value.PageBlob.Default?.DeleteIfExists();
             }
         }
 

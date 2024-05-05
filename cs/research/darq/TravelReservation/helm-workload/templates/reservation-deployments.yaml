@@ -1,0 +1,57 @@
+{{- range .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    service: service{{ .num }}
+  name: service{{ .num }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: service{{ .num }}
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        service: service{{ .num }}
+    spec:
+      priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
+      initContainers:
+        - name: wait-for-dprfinder{{ .num }}
+          image: bitnami/kubectl
+          command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
+      containers:
+        - command:
+            - "TravelReservation/TravelReservation"
+          args:
+            - "-t"
+            - "service"
+            - "-w"
+            - "{{ $.Values.experiment }}/workloads/{{ $.Values.workload }}-service-{{ .num }}.csv"
+            - "-n"
+            - "{{ .num }}"
+            {{- if $.Values.services }}
+            - "-s"
+            {{- end }}
+          image: tianyuli96/faster:latest
+          name: service{{ .num }}
+          ports:
+            - containerPort: 15721
+            - containerPort: 4022
+          volumeMounts:
+            - name: servicestorage{{ .num }}
+              mountPath: "/mnt/plrs"
+          envFrom:
+            - configMapRef:
+                name: env-config
+      volumes:
+        - name: servicestorage{{ .num }}
+          persistentVolumeClaim:
+            claimName: service{{ .num }}-pvc
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always
+---
+{{- end }}

@@ -1,0 +1,16 @@
+{{- range .Values.workers }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    service: pubsub{{ .num }}
+  name: pubsub{{ .num }} 
+spec:
+  ports:
+    - name: "15721"
+      port: 15721
+      targetPort: 15721
+  selector:
+    service: pubsub{{ .num }}
+---
+{{- end }}

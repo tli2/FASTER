@@ -23,6 +23,7 @@ namespace FASTER.core
         private readonly SafeConcurrentDictionary<int, (AsyncPool<Stream>, AsyncPool<Stream>)> logHandles;
         private readonly SectorAlignedBufferPool pool;
 
+        
         /// <summary>
         /// Number of pending reads on device
         /// </summary>
@@ -77,10 +78,24 @@ namespace FASTER.core
                 }
             }
         }
+        
 
         /// <inheritdoc />
         // We do not throttle ManagedLocalStorageDevice because our AsyncPool of handles takes care of this
         public override bool Throttle() => false;
+
+        public static void RemoveIfPresent(string filename)
+        {
+            FileInfo fi = new(filename); // may not exist
+            DirectoryInfo di = fi.Directory;
+            if (!di.Exists) return;
+
+            string bareName = fi.Name;
+
+            foreach (FileInfo item in di.GetFiles(bareName + "*"))
+                File.Delete(item.FullName);
+        }
+        
 
         private void RecoverFiles()
         {
@@ -189,7 +204,7 @@ namespace FASTER.core
                 return;
             }
 
-            _ = Task.Run(async () =>
+            Task.Factory.StartNew(async () =>
             {
                 if (!gotHandle)
                 {
@@ -267,7 +282,7 @@ namespace FASTER.core
                     // Issue user callback
                     callback(errorCode, (uint)numBytes, context);
                 }
-            });
+            }, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
         }
 
         /// <summary>
@@ -351,7 +366,7 @@ namespace FASTER.core
                 return;
             }
 
-            _ = Task.Run(async () =>
+            Task.Factory.StartNew(async () =>
             {
                 if (!gotHandle)
                 {
@@ -429,7 +444,7 @@ namespace FASTER.core
                     // Issue user callback
                     callback(errorCode, numBytesToWrite, context);
                 }
-            });
+            }, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
         }
 
         /// <summary>
@@ -481,6 +496,10 @@ namespace FASTER.core
         public override void Dispose()
         {
             _disposed = true;
+            // reusableSchedulers.Return(scheduler);
+            // if (Interlocked.Decrement(ref instanceCount) == 0)
+                // reusableSchedulers.DisposeAllResources();
+
             foreach (var entry in logHandles)
             {
                 entry.Value.Item1.Dispose();

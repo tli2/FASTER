@@ -44,7 +44,6 @@ namespace FASTER.core
         long commitNum, commitCoveredAddress;
 
         readonly LogCommitPolicy commitPolicy;
-
         /// <summary>
         /// Beginning address of log
         /// </summary>
@@ -326,13 +325,11 @@ namespace FASTER.core
             bool isProtected = epoch.ThisInstanceProtected();
             if (!isProtected)
                 epoch.Resume();
+            var otherEntriesDone = new ManualResetEventSlim();
             try
             {
                 // Ensure all currently started entries will enqueue before we declare log closed
-                epoch.BumpCurrentEpoch(() =>
-                {
-                    CommitInternal(out _, out _, false, Array.Empty<byte>(), long.MaxValue, null);
-                });
+                epoch.BumpCurrentEpoch(() => {});
             }
             finally
             {
@@ -340,6 +337,7 @@ namespace FASTER.core
                     epoch.Suspend();
             }
 
+            CommitInternal(out _, out _, false, Array.Empty<byte>(), long.MaxValue, null);
             if (spinWait)
                 WaitForCommit(TailAddress, long.MaxValue);
         }
@@ -450,33 +448,71 @@ namespace FASTER.core
             return logicalAddress;
         }
 
+        public unsafe bool TryEnqueue(IReadOnlySpanBatch readOnlySpanBatch, Action<IReadOnlySpanBatch, int, long> criticalSection)
+        {
+            int totalEntries = readOnlySpanBatch.TotalEntries();
+            var allocatedLength = 0;
+            for (int i = 0; i < totalEntries; i++)
+            {
+                allocatedLength += Align(readOnlySpanBatch.Get(i).Length) + headerSize;
+            }
+
+            ValidateAllocatedLength(allocatedLength);
+
+            epoch.Resume();
+            if (commitNum == long.MaxValue) throw new FasterException("Attempting to enqueue into a completed log");
+
+            var logicalAddress = allocator.TryAllocateRetryNow(allocatedLength);
+
+            if (logicalAddress == 0)
+            {
+                epoch.Suspend();
+                if (cannedException != null) throw cannedException;
+                return false;
+            }
+
+            var physicalAddress = allocator.GetPhysicalAddress(logicalAddress);
+            var currentLogicalAddress = logicalAddress;
+            for (int i = 0; i < totalEntries; i++)
+            {
+                var span = readOnlySpanBatch.Get(i);
+                var entryLength = span.Length;
+                fixed (byte* bp = &span.GetPinnableReference())
+                    Buffer.MemoryCopy(bp, (void*) (headerSize + physicalAddress), entryLength, entryLength);
+                SetHeader(entryLength, (byte*) physicalAddress);
+                var usedSpace = Align(entryLength) + headerSize;
+                
+                criticalSection?.Invoke(readOnlySpanBatch, i, currentLogicalAddress);
+                currentLogicalAddress += usedSpace;
+                physicalAddress += usedSpace;
+            }
+            
+            if (AutoRefreshSafeTailAddress) DoAutoRefreshSafeTailAddress();
+
+            epoch.Suspend();
+            return true;
+        }
+        
+        public void Enqueue(IReadOnlySpanBatch batch, Action<IReadOnlySpanBatch, int, long> criticalSection)
+        {
+            while (!TryEnqueue(batch, criticalSection))
+                Thread.Yield();
+        }
+        
         /// <summary>
         /// Enqueue batch of entries to log (in memory) - no guarantee of flush/commit
         /// </summary>
         /// <param name="entry">Entry to be enqueued to log</param>
         /// <typeparam name="T">type of entry</typeparam>
         /// <returns>Logical address of added entry</returns>
-        public long Enqueue<T>(T entry) where T : ILogEnqueueEntry
+        public long Enqueue<T>(T entry, Action<T, long> criticalSection) where T : ILogEnqueueEntry
         {
             long logicalAddress;
-            while (!TryEnqueue(entry, out logicalAddress))
+            while (!TryEnqueue(entry, out logicalAddress, criticalSection))
                 Thread.Yield();
             return logicalAddress;
         }
-
-        /// <summary>
-        /// Enqueue batch of entries to log (in memory) - no guarantee of flush/commit
-        /// </summary>
-        /// <param name="entries">Batch of entries to be enqueued to log</param>
-        /// <typeparam name="T">type of entry</typeparam>
-        /// <returns>Logical address of added entry</returns>
-        public long Enqueue<T>(IEnumerable<T> entries) where T : ILogEnqueueEntry
-        {
-            long logicalAddress;
-            while (!TryEnqueue(entries, out logicalAddress))
-                Thread.Yield();
-            return logicalAddress;
-        }
+        
         #endregion
 
         #region TryEnqueue
@@ -488,7 +524,7 @@ namespace FASTER.core
         /// <param name="logicalAddress">Logical address of added entry</param>
         /// <typeparam name="T">type of entry</typeparam>
         /// <returns>Whether the append succeeded</returns>
-        public unsafe bool TryEnqueue<T>(T entry, out long logicalAddress) where T : ILogEnqueueEntry
+        public unsafe bool TryEnqueue<T>(T entry, out long logicalAddress, Action<T, long> criticalSection) where T : ILogEnqueueEntry
         {
             logicalAddress = 0;
             var length = entry.SerializedLength;
@@ -511,6 +547,7 @@ namespace FASTER.core
             var physicalAddress = allocator.GetPhysicalAddress(logicalAddress);
             entry.SerializeTo(new Span<byte>((void*)(headerSize + physicalAddress), length));
             SetHeader(length, (byte*)physicalAddress);
+            criticalSection?.Invoke(entry, logicalAddress);
             if (AutoRefreshSafeTailAddress) DoAutoRefreshSafeTailAddress();
             epoch.Suspend();
             if (AutoCommit) Commit();
@@ -1087,7 +1124,7 @@ namespace FASTER.core
         public ValueTask<long> EnqueueAsync<T>(T entry, CancellationToken token = default) where T : ILogEnqueueEntry
         {
             token.ThrowIfCancellationRequested();
-            if (TryEnqueue(entry, out long logicalAddress))
+            if (TryEnqueue(entry, out long logicalAddress, null))
                 return new ValueTask<long>(logicalAddress);
 
             return SlowEnqueueAsync(this, entry, token);
@@ -1100,7 +1137,7 @@ namespace FASTER.core
             while (true)
             {
                 var flushEvent = @this.FlushEvent;
-                if (@this.TryEnqueue(entry, out logicalAddress))
+                if (@this.TryEnqueue(entry, out logicalAddress, null))
                     break;
                 // Wait for *some* flush - failure can be ignored except if the token was signaled (which the caller should handle correctly)
                 try
@@ -1455,7 +1492,7 @@ namespace FASTER.core
         public long EnqueueAndWaitForCommit<T>(T entry) where T : ILogEnqueueEntry
         {
             long logicalAddress;
-            while (!TryEnqueue(entry, out logicalAddress))
+            while (!TryEnqueue(entry, out logicalAddress, null))
                 Thread.Yield();
             WaitForCommit(logicalAddress + 1);
             return logicalAddress;
@@ -1657,7 +1694,7 @@ namespace FASTER.core
             {
                 flushEvent = FlushEvent;
                 commitTask = CommitTask;
-                if (TryEnqueue(entry, out logicalAddress))
+                if (TryEnqueue(entry, out logicalAddress, null))
                     break;
                 try
                 {

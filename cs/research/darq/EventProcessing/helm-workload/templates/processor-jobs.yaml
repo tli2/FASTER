@@ -1,0 +1,51 @@
+{{- range .Values.processors }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    type: processor
+  name: {{ .name }}
+spec:
+  template:
+    metadata:
+      labels:
+        type: processor
+    spec:
+      priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
+      initContainers:
+        - name: wait-pubsub
+          image: bitnami/kubectl
+          command: [ "sh", "-c" ]
+          args:
+            - >
+              while true; do
+                # Check if all pubsub deployments have at least one ready replica
+                notReadyCount=$(kubectl get deployment -l type=pubsub -n dse | grep -c "0/1")
+                if [ "$notReadyCount" -eq 0 ]; then
+                  echo "All deployments are ready.";
+                  break;
+                else
+                  echo "Waiting for all deployments to be ready. $notReadyCount deployments are not ready.";
+                  sleep 1;
+                fi;
+              done;
+      containers:
+        - command:
+            - "EventProcessing/EventProcessing"
+          args:
+            - "-t"
+            - "{{ .name }}"
+            {{- if $.Values.speculative }}
+            - "-s"
+            {{- end }}
+          image: tianyuli96/faster:latest
+          name: {{ .name }}
+          ports:
+            - containerPort: 15721
+          envFrom:
+            - configMapRef:
+                name: env-config
+      restartPolicy: Never
+---
+{{- end }}
