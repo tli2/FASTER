@@ -84,7 +84,10 @@ public class Program
         var coordinator =
             new CommitCoordinatorService.CommitCoordinatorServiceClient(
                 GrpcChannel.ForAddress(environment.GetCoordinatorConnString()));
-        var measurements = new ConcurrentDictionary<long, long>();
+        var measurements = new List<(long, long)>();
+        for (var i = 0; i < numTransactionsToRun; i++)
+            measurements.Add((0, 0));
+        
         var stopwatch = Stopwatch.StartNew();
         var rateLimiter = new SemaphoreSlim(options.Window, options.Window);
         for (var i = 0; i < numTransactionsToRun; i++)
@@ -128,14 +131,16 @@ public class Program
 
                     // Commit is non-speculative
                     var response = await coordinator.CommitAsync(new TransactionsRequest(transaction));
-                    measurements[startTimeMilli] = response.Success ? stopwatch.ElapsedTicks - startTime : -1;
+                    measurements[(int)transaction.TxnId] =
+                        (startTimeMilli, response.Success ? stopwatch.ElapsedTicks - startTime : -1);
 
                 }
                 catch (Exception e1)
                 {
                     // Console.WriteLine($"transaction {transaction.TxnId} threw exception {e1.Message} -- treating as an abort");
                     // negative to indicate abort
-                    measurements[startTimeMilli] = -1;
+                    measurements[(int)transaction.TxnId] =
+                        (startTimeMilli, -1);
                 }
                 finally
                 {
@@ -150,16 +155,16 @@ public class Program
         await WriteResults(options, environment, measurements);
     }
 
-    private static async Task WriteResults(Options options, IEnvironment environment,ConcurrentDictionary<long, long> measurements)
+    private static async Task WriteResults(Options options, IEnvironment environment,List<(long, long)> measurements)
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
         var aborted = 0;
-        foreach (var line in measurements)
+        foreach (var (startTime, latency) in measurements)
         {
-            if (line.Value < 0)
+            if (latency < 0)
                 aborted++;
-            streamWriter.WriteLine($"{line.Key}, {line.Value}");
+            streamWriter.WriteLine($"{startTime}, {latency}");
         }
         streamWriter.WriteLine($"Aborted: {aborted} out of {measurements.Count}");
         await streamWriter.FlushAsync();
