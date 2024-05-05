@@ -164,7 +164,7 @@ public class Program
         {
             if (latency < 0)
                 aborted++;
-            streamWriter.WriteLine($"{startTime}, {latency}");
+            streamWriter.WriteLine($"{startTime}, {1000.0 * latency / Stopwatch.Frequency}");
         }
         streamWriter.WriteLine($"Aborted: {aborted} out of {measurements.Count}");
         await streamWriter.FlushAsync();
