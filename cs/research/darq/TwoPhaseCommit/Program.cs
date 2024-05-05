@@ -75,6 +75,7 @@ public class Program
     private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
         var numTransactionsToRun = 30000;
+        var countdownEvent = new CountdownEvent(numTransactionsToRun);
         var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
         var sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
         var channels = new List<GrpcChannel>();
@@ -104,7 +105,6 @@ public class Program
                         channels[0].Intercept(new DprClientInterceptor(session)));
                     await client.ForceFailoverAsync(new ForceFailoverMessage());
                     sessionPool.Return(session);
-
                 }
             }
             await rateLimiter.WaitAsync();
@@ -146,12 +146,12 @@ public class Program
                 {
                     sessionPool.Return(session);
                     rateLimiter.Release();
+                    countdownEvent.Signal();
                 }
             });
         }
 
-        while (measurements.Count != numTransactionsToRun)
-            await Task.Delay(5);
+        countdownEvent.Wait();
         await WriteResults(options, environment, measurements);
     }
 
