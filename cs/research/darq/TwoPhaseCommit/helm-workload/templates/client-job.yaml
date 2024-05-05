@@ -10,13 +10,12 @@ spec:
       initContainers:
         - name: wait-all
           image: bitnami/kubectl
-          imagePullPolicy: IfNotPresent
           command: [ "sh", "-c" ]
           args:
             - >
               while true; do
                 # Check if all deployments have at least one ready replica
-                notReadyCount=$(kubectl get pods -l type=processor -n dse | grep -c "0/1")
+                notReadyCount=$(kubectl get deployments -n dse | grep -c "0/1")
                 if [ "$notReadyCount" -eq 0 ]; then
                   echo "All deployments are ready.";
                   break;
@@ -38,7 +37,7 @@ spec:
             - "-f"
             {{- end }}
             - "-w"
-            - {{ $.Values.window }}
+            - "{{ $.Values.window }}"
             - "-o"
             - "2pc-results-{{.Values.tag}}.txt"
           image: tianyuli96/faster:latest
