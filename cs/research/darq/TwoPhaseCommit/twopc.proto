@@ -1,0 +1,46 @@
+syntax = "proto3";
+option csharp_namespace = "protobuf";
+
+enum TwoPCMessageType {
+  ACK = 0;
+  PREPARE = 1;
+  VOTE_Y = 2;
+  VOTE_N = 3;
+  COMMIT = 4;
+  ABORT = 5;
+  START = 6;
+}
+
+message TwoPCMessage {
+  TwoPCMessageType type = 1;
+  int64 txnId = 3;
+  bytes payload = 4;
+}
+
+message TransactionsRequest {
+  int64 txnId = 1;
+}
+
+message TransactionResponse {
+  bool success = 1;
+}
+
+message ForceFailoverMessage {
+  bytes payload = 1;
+}
+
+message ForceuFailoverResponse {
+  bytes payload = 2;
+}
+
+service CommitParticipantService {
+  rpc ForceFailover(ForceFailoverMessage) returns (ForceFailoverMessage);
+  
+  rpc StartTransaction(TransactionsRequest) returns (TransactionResponse);
+
+  rpc SendMessage(TwoPCMessage) returns (TwoPCMessage);
+}
+
+service CommitCoordinatorService {
+  rpc Commit(TransactionsRequest) returns (TransactionResponse);
+}

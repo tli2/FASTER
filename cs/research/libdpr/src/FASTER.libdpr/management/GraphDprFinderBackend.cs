@@ -350,14 +350,7 @@ namespace FASTER.libdpr
             // checkpoints. We require this to be able to process the request.
             if (!recoveryState.RecoveryComplete()) throw new InvalidOperationException();
             (long, long) result;
-            if (volatileClusterState.worldLinePrefix.TryAdd(dprWorkerId, 0))
-            {
-                // First time we have seen this worker --- start them at current world-line
-                result = (volatileClusterState.currentWorldLine, 0);
-                currentCut.Add(dprWorkerId, 0);
-                cutChanged = true;
-            }
-            else
+            if (dprWorkerId.guid == -1 || !volatileClusterState.worldLinePrefix.TryAdd(dprWorkerId, 0))
             {
                 // Otherwise, this worker thinks it's booting up for a second time, which means there was a restart.
                 // We count this as a failure. Advance the cluster world-line
@@ -371,8 +364,22 @@ namespace FASTER.libdpr
                     objectPool.Return(list);
                 precedenceGraph.Clear();
                 outstandingWvs.Clear();
-                var survivingVersion = currentCut[dprWorkerId];
-                result = (volatileClusterState.currentWorldLine, survivingVersion);
+                if (dprWorkerId.guid != -1)
+                {
+                    var survivingVersion = currentCut[dprWorkerId];
+                    result = (volatileClusterState.currentWorldLine, survivingVersion);
+                }
+                else
+                {
+                    result = (-1, -1);
+                }
+            }
+            else
+            {
+                // First time we have seen this worker --- start them at current world-line
+                result = (volatileClusterState.currentWorldLine, 0);
+                currentCut.Add(dprWorkerId, 0);
+                cutChanged = true;
             }
 
             return result;

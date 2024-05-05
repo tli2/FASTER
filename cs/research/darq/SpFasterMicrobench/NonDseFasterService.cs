@@ -122,67 +122,6 @@ public class NonDseFasterBackgroundService : BackgroundService
             sessions.Return(s);
         }
     }
-
-    public Task<ReservationResponse> CancelReservation(ReservationRequest request)
-    {
-        var s = sessions.Checkout();
-        try
-        {
-            var offeringKey = new Key(TableId.OFFERINGS, request.OfferingId);
-            var reservationCount = request.Count;
-            var reservationsKey = new Key(TableId.RESERVATIONS, request.ReservationId);
-
-            var status = s.Delete(ref reservationsKey);
-            if (status.NotFound)
-            {
-                return Task.FromResult(new ReservationResponse
-                {
-                    Ok = false
-                });
-            }
-
-            // Add updates back to count
-            reservationCount = -reservationCount;
-            var success = false;
-            status = s.RMW(ref offeringKey, ref reservationCount, ref success);
-            if (!status.IsCompletedSuccessfully) throw new NotImplementedException();
-            return Task.FromResult(new ReservationResponse
-            {
-                Ok = true
-            });
-        }
-        finally
-        {
-            sessions.Return(s);
-        }
-    }
-
-    public Task<AddOfferingResponse> AddOffering(AddOfferingRequest request)
-    {
-        var s = sessions.Checkout();
-        try
-        {
-            var offeringKey = new Key(TableId.OFFERINGS, request.OfferingToAdd.OfferingId);
-            var offeringEntry = Value.CreateOffering(request.OfferingToAdd.OfferingId, request.OfferingToAdd.EntityId,
-                request.OfferingToAdd.Price, request.OfferingToAdd.RemainingCount);
-            var status = s.Upsert(ref offeringKey, ref offeringEntry);
-            if (status.IsCanceled)
-                return Task.FromResult(new AddOfferingResponse
-                {
-                    Ok = false
-                });
-            // Not planning on running into larger-than-mem or other complex situations
-            if (!status.IsCompletedSuccessfully) throw new NotImplementedException();
-            return Task.FromResult(new AddOfferingResponse
-            {
-                Ok = true
-            });
-        }
-        finally
-        {
-            sessions.Return(s);
-        }
-    }
 }
 
 public class NonDseReservationService : FasterKVReservationService.FasterKVReservationServiceBase
@@ -201,11 +140,11 @@ public class NonDseReservationService : FasterKVReservationService.FasterKVReser
 
     public override Task<ReservationResponse> CancelReservation(ReservationRequest request, ServerCallContext context)
     {
-        return faster.CancelReservation(request);
+        throw new NotImplementedException();
     }
 
     public override Task<AddOfferingResponse> AddOffering(AddOfferingRequest request, ServerCallContext context)
     {
-        return faster.AddOffering(request);
+        throw new NotImplementedException();
     }
 }

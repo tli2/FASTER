@@ -46,7 +46,7 @@ namespace FASTER.libdpr
         }
 
 
-        internal void UnsafeReset(long initialWorldLine = 0)
+        public void UnsafeReset(long initialWorldLine = 0)
         {
             version = 1;
             // 0 denotes that the session does not yet exist in a worldline

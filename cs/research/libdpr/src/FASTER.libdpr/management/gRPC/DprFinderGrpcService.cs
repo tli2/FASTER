@@ -75,6 +75,11 @@ namespace FASTER.libdpr
             processingThread.Join();
         }
 
+        public void ForceRollback()
+        {
+            backend.AddWorker(new DprWorkerId(-1), _ => { });
+        }
+
         public Task<AddWorkerResponse> AddWorker(AddWorkerRequest request)
         {
             var result = new TaskCompletionSource<AddWorkerResponse>();
@@ -155,6 +160,12 @@ namespace FASTER.libdpr
         public override Task<ResendGraphResponse> ResendGraph(ResendGraphRequest request, ServerCallContext context)
         {
             return backend.ResendGraph(request);
+        }
+
+        public override Task<ForceRollbackResponse> ForceRollback(ForceRollbackRequest request, ServerCallContext context)
+        {
+            backend.ForceRollback();
+            return Task.FromResult(new ForceRollbackResponse());
         }
     }
 }

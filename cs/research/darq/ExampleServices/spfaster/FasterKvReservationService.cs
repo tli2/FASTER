@@ -278,13 +278,13 @@ public class FasterKvReservationBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Faster service is starting...");
+        logger.LogWarning("Faster service is starting...");
         backend.ConnectToCluster(out var restored);
         if (!restored && !file.file.Equals(""))
             LoadFromFile(file.file);
 
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
-        logger.LogInformation("Faster service is stopping...");
+        logger.LogWarning("Faster service is stopping...");
     }
 
     public Task<ReservationResponse> MakeReservation(ReservationRequest request)

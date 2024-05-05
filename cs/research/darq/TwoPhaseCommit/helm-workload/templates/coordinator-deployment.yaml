@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    type: coordinator
+    service: coordinator
+  name: coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: coordinator
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        type: coordinator
+        service: coordinator
+    spec:
+      priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
+      initContainers:
+        - name: wait-for-dprfinder
+          image: bitnami/kubectl
+          imagePullPolicy: IfNotPresent
+          command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
+      containers:
+        - command:
+            - "TwoPhaseCommit/TwoPhaseCommit"
+          args:
+            - "-t"
+            - "coordinator"
+            - "-n"
+            - "5"
+            {{- if $.Values.speculative }}
+            - "-s"
+            {{- end }}
+            {{- if $.Values.failover }}
+            - "-f"
+            {{- end }}
+          image: tianyuli96/faster:latest
+          name: coordinator
+          ports:
+            - containerPort: 15721
+          volumeMounts:
+            - name: coordinator-storage
+              mountPath: "/mnt/plrs"
+          envFrom:
+            - configMapRef:
+                name: env-config
+      volumes:
+        - name: coordinator-storage
+          persistentVolumeClaim:
+            claimName: coordinator-pvc
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always

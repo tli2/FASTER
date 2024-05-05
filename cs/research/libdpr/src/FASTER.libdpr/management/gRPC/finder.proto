@@ -55,6 +55,13 @@ message ResendGraphResponse {
   bool ok = 1;
 }
 
+message ForceRollbackRequest {
+  bytes payload = 1;
+}
+message ForceRollbackResponse {
+  bytes payload = 1;
+}
+
 
 // TODO(Tianyu): Investigate whether streaming variants will make these more efficient
 service DprFinder {
@@ -67,4 +74,6 @@ service DprFinder {
   rpc Sync(SyncRequest) returns (SyncResponse);
   
   rpc ResendGraph(ResendGraphRequest) returns (ResendGraphResponse);
+  
+  rpc ForceRollback(ForceRollbackRequest) returns (ForceRollbackResponse);
 }

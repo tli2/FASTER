@@ -1,5 +1,7 @@
+using System.Threading;
 using System.Threading.Tasks;
 using FASTER.common;
+using FASTER.core;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Status = Grpc.Core.Status;
@@ -25,19 +27,23 @@ namespace FASTER.libdpr.gRPC
             ServerCallContext context,
             UnaryServerMethod<TRequest, TResponse> continuation)
         {
-            // TODO(Tianyu): Create Epoch Context specific to a request
-
+            var id = Interlocked.Increment(ref requestId);
+            // TODO(Tianyu): Currently only supporting cases where the handler does not pause actions when using EPVS -- otherwise use rw latch
+            var c = new LightEpoch.EpochContext
+            {
+                customId = id
+            };
             var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
             if (header != null)
             {
                 // Speculative code path
-                if (!await _stateObject.TryReceiveAndStartActionAsync(header))
+                if (!await _stateObject.TryReceiveAndStartActionAsync(header, c))
                     // Use an error to signal to caller that this call cannot proceed
                     // TODO(Tianyu): add more descriptive exception information
                     throw new RpcException(Status.DefaultCancelled);
                 var response = await continuation.Invoke(request, context);
                 var buf = serializationArrayPool.Checkout();
-                _stateObject.ProduceTagAndEndAction(buf);
+                _stateObject.ProduceTagAndEndAction(buf, c);
                 context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
                 serializationArrayPool.Return(buf);
                 return response;

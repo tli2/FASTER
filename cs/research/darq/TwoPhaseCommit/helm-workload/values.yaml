@@ -1,0 +1,13 @@
+conn_string: foo
+results_conn_string: foo
+tag: default
+
+participants:
+  - num: 0
+  - num: 1
+  - num: 2
+  - num: 3
+    
+speculative: false
+failover: false
+window: 32

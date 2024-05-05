@@ -1,0 +1,32 @@
+syntax = "proto3";
+option csharp_namespace = "protobuf.noint";
+message OfferingNoInt {
+  int64 offeringId = 1;
+  int64 entityId = 2;
+  int32 price = 4;
+  int32 remainingCount = 5;
+}
+
+message ReservationNoInt {
+  int64 reservationId = 1;
+  int64 offeringId = 2;
+  int64 customerId = 3;
+  int32 count = 4;
+}
+
+message ReservationRequestWithHeader {
+  bytes dprHeader = 1;
+  int64 reservationId = 2;
+  int64 offeringId = 3;
+  int64 customerId = 4;
+  int32 count = 5;
+}
+
+message ReservationResponseWithHeader {
+  bytes dprHeader = 1;
+  bool ok = 5;
+}
+
+service FasterKVReservationNoInterceptorService {
+  rpc MakeReservation(ReservationRequestWithHeader) returns (ReservationResponseWithHeader);
+}

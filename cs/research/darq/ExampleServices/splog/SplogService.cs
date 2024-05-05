@@ -60,26 +60,26 @@ public class SpeculativeLog : StateObject
 
 public class SplogBackgroundService : BackgroundService
 {
-    private SpeculativeLog backend;
+    public SpeculativeLog so;
     private ILogger<SplogBackgroundService> logger;
 
-    public SplogBackgroundService(SpeculativeLog backend, ILogger<SplogBackgroundService> logger)
+    public SplogBackgroundService(SpeculativeLog so, ILogger<SplogBackgroundService> logger)
     {
-        this.backend = backend;
+        this.so = so;
         this.logger = logger;
     }
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Splog is starting...");
-        backend.ConnectToCluster(out _);
+        so.ConnectToCluster(out _);
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
         logger.LogInformation("Splog is shutting down");
     }
 
     public Task<SplogAppendResponse> Append(SplogAppendRequest request)
     {
-        var lsn = backend.log.Enqueue(request.Entry.Span);
+        var lsn = so.log.Enqueue(request.Entry.Span);
         return Task.FromResult(new SplogAppendResponse
         {
             Ok = true,
@@ -105,9 +105,9 @@ public class SplogBackgroundService : BackgroundService
         var currentTime = timer.ElapsedMilliseconds;
         if (currentTime > timeoutMilli) return false;
         var nextEntry = iterator.WaitAsync().AsTask();
-        var session = backend.DetachFromWorkerAndPauseAction();
+        var session = so.DetachFromWorkerAndPauseAction();
         var result =  await Task.WhenAny(nextEntry, Task.Delay((int)(timeoutMilli - currentTime)));
-        if (!await backend.TryMergeAndStartActionAsync(session))
+        if (!await so.TryMergeAndStartActionAsync(session))
             throw new RpcException(Status.DefaultCancelled);
         return result == nextEntry;
     }
@@ -115,7 +115,7 @@ public class SplogBackgroundService : BackgroundService
     public async Task<SplogScanResponse> Scan(SplogScanRequest request)
     {
         var responseObject = new SplogScanResponse();
-        var scanner = backend.log.Scan(request.StartLsn, request.EndLsn, recover: false, scanUncommitted: true);
+        var scanner = so.log.Scan(request.StartLsn, request.EndLsn, recover: false, scanUncommitted: true);
         var timer = Stopwatch.StartNew();
         for (var i = 0; i < request.MaxChunkSize; i++)
         {
@@ -128,7 +128,7 @@ public class SplogBackgroundService : BackgroundService
 
     public Task<SplogTruncateResponse> Truncate(SplogTruncateRequest request)
     {
-        backend.log.TruncateUntil(request.NewStartLsn);
+        so.log.TruncateUntil(request.NewStartLsn);
         return Task.FromResult(new SplogTruncateResponse
         {
             Ok = true

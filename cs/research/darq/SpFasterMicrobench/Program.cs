@@ -2,9 +2,11 @@
 using System.Net;
 using CommandLine;
 using dse.services;
+using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
 using FASTER.libdpr.gRPC;
+using Google.Protobuf;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
 using Microsoft.AspNetCore.Builder;
@@ -13,6 +15,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using protobuf;
+using protobuf.noint;
 using Task = System.Threading.Tasks.Task;
 
 namespace microbench;
@@ -23,21 +26,124 @@ public class Options
         HelpText = "type of worker to launch (client or server)")]
     public string Type { get; set; }
 
-    [Option('d', "dse", Required = false, Default = false,
-        HelpText = "Use dse")]
-    public bool Dse { get; set; }
+    [Option('m', "moder", Required = false, Default = "none",
+        HelpText = "none, int (dse with interceptor), or noint (dse without interceptor)")]
+    public string Mode { get; set; }
     
     [Option('i', "input-file", Required = true,
         HelpText = "input file containing workload")]
     public string InputFile { get; set; }
 
-    [Option('o', "output-file", Required = false,
+    [Option('o', "output-file", Required = false, Default = "",
         HelpText = "Output file to dump latencies")]
     public string OutputFile { get; set; }
 
     [Option('w', "window", Required = false,
         HelpText = "number of outstanding client requests allowed")]
     public int Window { get; set; }
+}
+
+public interface IRequestIssuer
+{
+    void Initialize(string file);
+
+    int NumRequestsLoaded();
+
+    Task MakeReservationAsync(int requestId);
+}
+
+public class NormalRequestIssuer : IRequestIssuer
+{
+    private List<ReservationRequest> requests = new();
+    private List<FasterKVReservationService.FasterKVReservationServiceClient> clients = new();
+    private bool dse;
+
+    public NormalRequestIssuer(bool dse)
+    {
+        this.dse = dse;
+    }
+    
+    public void Initialize(string file)
+    {
+        foreach (var line in File.ReadLines(file))
+        {
+            var split = line.Split(',');
+            requests.Add(new ReservationRequest
+            {
+                ReservationId = long.Parse(split[2]),
+                OfferingId = long.Parse(split[3]),
+                CustomerId = long.Parse(split[4]),
+                Count = int.Parse(split[5])
+            });
+        }    
+        
+        for (var i = 0; i < Environment.ProcessorCount; i++)
+        {
+            var channel = GrpcChannel.ForAddress("http://10.0.0.6:15721");
+            if (dse)
+                clients.Add(
+                    new FasterKVReservationService.FasterKVReservationServiceClient(
+                        channel.Intercept(new DprClientInterceptor(new DprSession()))));
+            else
+                clients.Add(new FasterKVReservationService.FasterKVReservationServiceClient(channel));
+        }
+    }
+
+    public int NumRequestsLoaded()
+    {
+        return requests.Count;
+    }
+
+    public Task MakeReservationAsync(int requestId)
+    {
+        return clients[requestId % clients.Count].MakeReservationAsync(requests[requestId]).ResponseAsync;
+    }
+}
+
+
+public class NoInterceptorRequestIssuer : IRequestIssuer
+{
+    private List<ReservationRequestWithHeader> requests = new();
+    private SimpleObjectPool<byte[]> pool = new(() => new byte[1 << 10]);
+    private List<(DprSession, FasterKVReservationNoInterceptorService.FasterKVReservationNoInterceptorServiceClient)> clients = new();
+    
+    public void Initialize(string file)
+    {
+        foreach (var line in File.ReadLines(file))
+        {
+            var split = line.Split(',');
+            requests.Add(new ReservationRequestWithHeader
+            {
+                ReservationId = long.Parse(split[2]),
+                OfferingId = long.Parse(split[3]),
+                CustomerId = long.Parse(split[4]),
+                Count = int.Parse(split[5])
+            });
+        }    
+        
+        for (var i = 0; i < Environment.ProcessorCount; i++)
+        {
+            var channel = GrpcChannel.ForAddress("http://10.0.0.6:15721");
+            clients.Add((new DprSession(), new FasterKVReservationNoInterceptorService.FasterKVReservationNoInterceptorServiceClient(channel)));
+        }
+    }
+
+    public int NumRequestsLoaded()
+    {
+        return requests.Count;
+    }
+
+    public async Task MakeReservationAsync(int requestId)
+    {
+        var (session, client) = clients[requestId % clients.Count];
+        var buf = pool.Checkout();
+        var size = session.TagMessage(buf);
+        var request = requests[requestId];
+        request.DprHeader = ByteString.CopyFrom(new Span<byte>(buf, 0, size));
+        pool.Return(buf);
+        var response = await client.MakeReservationAsync(request);
+        session.Receive(response.DprHeader.Span);
+    }
 }
 
 public class Program
@@ -50,60 +156,50 @@ public class Program
         switch (options.Type)
         {
             case "server":
-                if (options.Dse)
+                if (options.Mode.Equals("int"))
                     await LaunchDseReservationService(options);
-                else
+                else if (options.Mode.Equals("noint"))
+                    await LaunchNoInterceptorDseReservationService(options);
+                else if (options.Mode.Equals("none"))
                     await LaunchNonDseReservationService(options);
+                else
+                    throw new NotImplementedException();
                 break;
             case "client":
             {
-                var requests = new List<ReservationRequest>();
-                foreach (var line in File.ReadLines(options.InputFile))
-                {
-                    var split = line.Split(',');
-                    requests.Add(new ReservationRequest
-                    {
-                        ReservationId = long.Parse(split[2]),
-                        OfferingId = long.Parse(split[3]),
-                        CustomerId = long.Parse(split[4]),
-                        Count = int.Parse(split[5])
-                    });
-                }
-
+                IRequestIssuer issuer;
+                if (options.Mode.Equals("int"))
+                    issuer = new NormalRequestIssuer(true);
+                else if (options.Mode.Equals("noint"))
+                    issuer = new NoInterceptorRequestIssuer();
+                else if (options.Mode.Equals("none"))
+                    issuer = new NormalRequestIssuer(false);
+                else
+                    throw new NotImplementedException();
+                
+                issuer.Initialize(options.InputFile);
                 var latencies = new List<long>();
-                for (var i = 0; i < requests.Count; i++)
+                for (var i = 0; i < issuer.NumRequestsLoaded(); i++)
                     latencies.Add(0);
-
-                var clients = new List<FasterKVReservationService.FasterKVReservationServiceClient>();
-                for (var i = 0; i < Environment.ProcessorCount; i++)
-                {
-                    var channel = GrpcChannel.ForAddress("http://10.0.0.6:15721");
-                    if (options.Dse)
-                        clients.Add(
-                            new FasterKVReservationService.FasterKVReservationServiceClient(
-                                channel.Intercept(new DprClientInterceptor(new DprSession()))));
-                    else
-                        clients.Add(new FasterKVReservationService.FasterKVReservationServiceClient(channel));
-                }
 
                 var semaphore = new SemaphoreSlim(options.Window, options.Window);
                 var stopwatch = Stopwatch.StartNew();
-                for (var i = 0; i < requests.Count; i++)
+                for (var i = 0; i < issuer.NumRequestsLoaded(); i++)
                 {
                     await semaphore.WaitAsync();
                     var startTime = stopwatch.ElapsedTicks;
                     var i1 = i;
                     _ = Task.Run(async () =>
                     {
-                        await clients[i1 % clients.Count].MakeReservationAsync(requests[i1]);
-                        semaphore.Release();
+                        await issuer.MakeReservationAsync(i1);
                         latencies[i1] = stopwatch.ElapsedTicks - startTime;
+                        semaphore.Release();
                     });
                 }
 
                 await semaphore.WaitAsync();
                 var totalTime = stopwatch.ElapsedMilliseconds;
-                Console.WriteLine($"Throughput: {1000.0 * requests.Count / totalTime}");
+                Console.WriteLine($"Throughput: {1000.0 * issuer.NumRequestsLoaded() / totalTime}");
 
                 var ticksPerMillisecond = Stopwatch.Frequency / 1000.0;
 
@@ -130,9 +226,7 @@ public class Program
                 Console.WriteLine($"95th Percentile Latency: {p95}");
 
                 if (!options.OutputFile.Equals(""))
-                {
                     File.WriteAllLines(options.OutputFile, milliseconds.Select(t => t.ToString()));
-                }
                 break;
             }
         }
@@ -172,8 +266,9 @@ public class Program
             CheckpointPeriodMilli = 10,
             RefreshPeriodMilli = 5
         });
-        // TODO(Tianyu): Switch implementation to epoch after testing
-        builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
+        
+        builder.Services.AddSingleton<LightEpoch>();
+        builder.Services.AddSingleton(typeof(IVersionScheme), typeof(EpochProtectedVersionScheme));
         builder.Services.AddSingleton<FasterKvReservationStateObject>();
         builder.Services.AddSingleton(new FasterKvReservationStartFile
         {
@@ -192,6 +287,65 @@ public class Program
         var app = builder.Build();
 
         app.MapGrpcService<FasterKvReservationService>();
+        app.MapGet("/",
+            () =>
+                "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+        await app.RunAsync();
+    }
+    
+    public static async Task LaunchNoInterceptorDseReservationService(Options options)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.AddConsole();
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
+        builder.WebHost.ConfigureKestrel(serverOptions =>
+        {
+            serverOptions.Listen(IPAddress.Any, 15721,
+                listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
+            serverOptions.Limits.MinRequestBodyDataRate = null;
+        });
+
+        var checkpointManager = new DeviceLogCommitCheckpointManager(
+            new NullNamedDeviceFactory(),
+            new DefaultCheckpointNamingScheme($"D:\\service"), removeOutdated: false);
+        builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
+        {
+            IndexSize = 1 << 25,
+            LogDevice = new NullDevice(),
+            PageSize = 1 << 25,
+            SegmentSize = 1 << 30,
+            MemorySize = 1L << 32,
+            CheckpointManager = checkpointManager,
+            TryRecoverLatest = false,
+        });
+        builder.Services.AddSingleton<FasterKV<Key, Value>>();
+        builder.Services.AddSingleton(new DprWorkerOptions
+        {
+            Me = new DprWorkerId(0),
+            DprFinder = new LocalStubDprFinder(),
+            CheckpointPeriodMilli = 10,
+            RefreshPeriodMilli = 5
+        });
+        
+        builder.Services.AddSingleton<LightEpoch>();
+        builder.Services.AddSingleton(typeof(IVersionScheme), typeof(EpochProtectedVersionScheme));
+        builder.Services.AddSingleton<FasterKvReservationStateObject>();
+        builder.Services.AddSingleton(new FasterKvReservationStartFile
+        {
+            file = options.InputFile
+        });
+        builder.Services.AddSingleton<FasterKvReservationBackgroundServiceNoInt>();
+
+        builder.Services.AddSingleton<FasterKvReservationServiceNoInt>();
+
+        builder.Services.AddGrpc();
+        builder.Services.AddHostedService<FasterKvReservationBackgroundServiceNoInt>(provider =>
+            provider.GetRequiredService<FasterKvReservationBackgroundServiceNoInt>());
+        builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
+        var app = builder.Build();
+
+        app.MapGrpcService<FasterKvReservationServiceNoInt>();
         app.MapGet("/",
             () =>
                 "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");

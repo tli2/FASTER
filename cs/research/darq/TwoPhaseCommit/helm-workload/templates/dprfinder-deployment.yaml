@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    service: dprfinder
+  name: dprfinder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: dprfinder
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        service: dprfinder
+    spec:
+      priorityClassName: high-priority
+      containers:
+        - command:
+            - "TwoPhaseCommit/TwoPhaseCommit"
+          args:
+            - "-t"
+            - "dprfinder"
+          image: tianyuli96/faster:latest
+          name: dprfinder
+          ports:
+            - containerPort: 15721
+          volumeMounts:
+            - name: dprfinderstorage
+              mountPath: "/mnt/plrs"
+          envFrom:
+            - configMapRef:
+                name: env-config
+      volumes:
+        - name: dprfinderstorage
+          persistentVolumeClaim:
+            claimName: dprfinder-pvc
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always

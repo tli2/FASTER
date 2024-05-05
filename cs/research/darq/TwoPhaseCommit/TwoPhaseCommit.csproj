@@ -1,30 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <ServerGarbageCollection>true</ServerGarbageCollection>
         <OutputType>Exe</OutputType>
         <TargetFramework>net7.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <RootNamespace>FasterMicrobench</RootNamespace>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <ServerGarbageCollection>true</ServerGarbageCollection>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="CommandLineParser" Version="2.9.1" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="..\..\..\src\core\FASTER.core.csproj" />
-      <ProjectReference Include="..\..\libdpr\src\FASTER.libdpr\FASTER.libdpr.csproj" />
-      <ProjectReference Include="..\ExampleServices\ExampleServices.csproj" />
-      <ProjectReference Include="..\FASTER.darq\FASTER.darq.csproj" />
-    </ItemGroup>
-    
-
-    <ItemGroup>
+        <PackageReference Include="CommandLineParser" Version="2.9.1" />
         <PackageReference Include="Google.Protobuf" Version="3.25.0"/>
         <PackageReference Include="Grpc.AspNetCore" Version="2.59.0-pre1"/>
+        <PackageReference Include="Grpc.Core.Api" Version="2.62.0" />
         <PackageReference Include="Grpc.Net.Client" Version="2.59.0-pre1"/>
         <PackageReference Include="Grpc.Tools" Version="2.59.0">
             <PrivateAssets>all</PrivateAssets>
@@ -32,9 +21,14 @@
         </PackageReference>
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\..\libdpr\src\FASTER.libdpr\FASTER.libdpr.csproj" />
+      <ProjectReference Include="..\ExampleServices\ExampleServices.csproj" />
+      <ProjectReference Include="..\FASTER.darq\FASTER.darq.csproj" />
+    </ItemGroup>
 
     <ItemGroup>
-      <Protobuf Include="fasterkv-reservable-noint.proto">
+      <Protobuf Include="twopc.proto">
         <GrpcServices>Server, Client</GrpcServices>
         <Access>Public</Access>
         <ProtoCompile>True</ProtoCompile>
@@ -43,5 +37,6 @@
         <Generator>MSBuild:Compile</Generator>
       </Protobuf>
     </ItemGroup>
+
 
 </Project>

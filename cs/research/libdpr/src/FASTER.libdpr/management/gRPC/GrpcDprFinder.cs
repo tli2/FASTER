@@ -116,5 +116,10 @@ namespace FASTER.libdpr
                 Id = id.guid
             });
         }
+
+        public void ForceRollback()
+        {
+            finderClient.ForceRollback(new ForceRollbackRequest());
+        }
     }
 }

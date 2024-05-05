@@ -42,7 +42,10 @@ namespace FASTER.libdpr
         private bool connected;
 
         private long largestRequestedCheckpointVersion = -1;
+        private long locallyPersistentVersion = -1;
+
         private TaskCompletionSource nextVersionBegin = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         // TODO(Tianyu): Used for recovery now -- convert to task based similar to commit path
         private SemaphoreSlim rateLimiter = new(1, 1);
 
@@ -110,6 +113,7 @@ namespace FASTER.libdpr
                     {
                         so.versions.TryRemove(fromState.Version, out var deps);
                         var workerVersion = new WorkerVersion(so.options.Me, fromState.Version);
+                        so.locallyPersistentVersion = fromState.Version;
                         // TODO(Tianyu): Hack to early commit non-speculative work
                         if (deps.Count() == 1)
                         {
@@ -128,7 +132,8 @@ namespace FASTER.libdpr
                     if (fromState.Version != 0) newDeps.Update(so.options.Me, fromState.Version);
                     var success = so.versions.TryAdd(toState.Version, newDeps);
                     Debug.Assert(success);
-                    so.versionTcs.TryAdd(toState.Version, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+                    so.versionTcs.TryAdd(toState.Version,
+                        new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                 }
             }
 
@@ -160,14 +165,16 @@ namespace FASTER.libdpr
         }
 
         public IDprFinder GetDprFinder() => options.DprFinder;
-        
+
         /// <summary></summary>
         /// <returns> A task that completes when the next commit is recoverable</returns>
-        public ValueTask DprCommit(long version)
+        public async ValueTask DprCommit(long version)
         {
+            var f = this.failedOver;
             if (versionTcs.TryGetValue(version, out var tcs))
-                return new ValueTask(tcs.Task);
-            return ValueTask.CompletedTask;
+                await tcs.Task;
+            if (f != failedOver)
+                throw new DprSessionRolledBackException(-1);
         }
 
         /// <summary>
@@ -262,19 +269,29 @@ namespace FASTER.libdpr
                                     return;
                                 }
                         }
-                    
+
                         // Clear any leftover state and signal complete
                         versions.Clear();
                         var newDeps = dependencySetPool.Checkout();
                         if (vOld != 0)
                             newDeps.Update(options.Me, vOld);
                         var success = versions.TryAdd(vNew, newDeps);
-                        versionTcs.TryAdd(vNew, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+                        versionTcs.TryAdd(vNew,
+                            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                         Debug.Assert(success);
                         worldLine = newWorldLine;
                     }
                 }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
             }
+        }
+
+        public bool failedOver = false;
+
+        public bool failOverRequested = false;
+        // For experiments only!
+        public void ForceFailover()
+        {
+            failOverRequested = true;
         }
 
         internal int MetadataSize(ReadOnlySpan<byte> deps)
@@ -310,7 +327,7 @@ namespace FASTER.libdpr
                 throw new InvalidOperationException("Cannot connect to a cluster twice");
             long versionToRecover = 0;
 
-                versionToRecover = options.DprFinder.AddWorker(options.Me, GetUnprunedVersions);
+            versionToRecover = options.DprFinder.AddWorker(options.Me, GetUnprunedVersions);
 
             // This worker is recovering from some failure and we need to load said checkpoint
             restored = versionToRecover != 0;
@@ -352,6 +369,16 @@ namespace FASTER.libdpr
         {
             var currentTime = sw.ElapsedMilliseconds;
             var lastCommitted = CommittedVersion();
+            if (failOverRequested)
+            {
+                failOverRequested = false;
+                versionScheme.AdvanceVersionWithCriticalSection((vOld, vNew) =>
+                {
+                    ActuallyRestore(1, locallyPersistentVersion, vOld, vNew);
+                    failedOver = true;
+                });
+            }
+
 
             if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
                 BeginCheckpoint(largestRequestedCheckpointVersion);
@@ -487,9 +514,11 @@ namespace FASTER.libdpr
                     BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
                 versionScheme.Enter(context);
             }
+
             // If the worker world-line is newer, the request must be dropped. 
             if (wl != 0 && wl < worldLine)
             {
@@ -526,6 +555,7 @@ namespace FASTER.libdpr
                     BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
                 versionScheme.Enter(context);
             }
@@ -566,6 +596,7 @@ namespace FASTER.libdpr
                     BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
                 versionScheme.Enter(context);
             }
@@ -612,6 +643,7 @@ namespace FASTER.libdpr
                     BeginRestore(wl, options.DprFinder.SafeVersion(options.Me));
                     Thread.Yield();
                 }
+
                 rateLimiter.Release();
                 versionScheme.Enter(context);
             }

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    service: coordinator
+  name: coordinator
+spec:
+  ports:
+    - name: "15721"
+      port: 15721
+      targetPort: 15721
+  selector:
+    service: coordinator

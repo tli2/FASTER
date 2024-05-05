@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: client
+spec:
+  template:
+    spec:
+      priorityClassName: high-priority
+      serviceAccountName: deployment-watcher
+      initContainers:
+        - name: wait-all
+          image: bitnami/kubectl
+          imagePullPolicy: IfNotPresent
+          command: [ "sh", "-c" ]
+          args:
+            - >
+              while true; do
+                # Check if all deployments have at least one ready replica
+                notReadyCount=$(kubectl get pods -l type=processor -n dse | grep -c "0/1")
+                if [ "$notReadyCount" -eq 0 ]; then
+                  echo "All deployments are ready.";
+                  break;
+                else
+                  echo "Waiting for all deployments to be ready. $notReadyCount deployments are not ready.";
+                  sleep 1;
+                fi;
+              done;
+      containers:
+        - command:
+            - "TwoPhaseCommit/TwoPhaseCommit"
+          args:
+            - "-t"
+            - "client"
+            {{- if $.Values.speculative }}
+            - "-s"
+            {{- end }}
+            {{- if $.Values.failover }}
+            - "-f"
+            {{- end }}
+            - "-w"
+            - {{ $.Values.window }}
+            - "-o"
+            - "2pc-results-{{.Values.tag}}.txt"
+          image: tianyuli96/faster:latest
+          name: client
+          ports:
+            - containerPort: 15721
+          envFrom:
+            - configMapRef:
+                name: env-config
+      restartPolicy: Never
