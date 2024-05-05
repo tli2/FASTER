@@ -112,7 +112,7 @@ public class Program
             var startTime = stopwatch.ElapsedTicks;
             _ = Task.Run(async () =>
             {
-                Console.WriteLine($"Starting transaction number {transaction.TxnId}");
+                // Console.WriteLine($"Starting transaction number {transaction.TxnId}");
                 var session = sessionPool.Checkout();
                 session.UnsafeReset();
                 try
@@ -140,8 +140,7 @@ public class Program
                 }
                 catch (Exception e1)
                 {
-                    Console.WriteLine($"transaction {transaction.TxnId} threw exception {e1.Message} -- treating as an abort");
-
+                    // Console.WriteLine($"transaction {transaction.TxnId} threw exception {e1.Message} -- treating as an abort");
                     // negative to indicate abort
                     measurements.Add(-1);
                 }
@@ -181,7 +180,7 @@ public class Program
         var builder = WebApplication.CreateBuilder();
         
         builder.Logging.AddConsole();
-        // builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, environment.GetCoordinatorPort(options),
@@ -206,7 +205,7 @@ public class Program
         {
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
-            CheckpointPeriodMilli = 10,
+            CheckpointPeriodMilli = 5,
             RefreshPeriodMilli = 5
         });
         
@@ -246,7 +245,7 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
-        // builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
             serverOptions.Listen(IPAddress.Any, environment.GetDprFinderPort(),
@@ -275,7 +274,7 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
-        // builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
@@ -301,7 +300,7 @@ public class Program
         {
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
-            CheckpointPeriodMilli = 10,
+            CheckpointPeriodMilli = 5,
             RefreshPeriodMilli = 5
         });
 

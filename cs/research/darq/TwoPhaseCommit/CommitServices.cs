@@ -229,17 +229,13 @@ public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoord
         var tasks = new List<Task<TwoPCMessage>>(4);
         foreach (var p in settings.participants)
         {
-            var client = settings.speculative ?
-                new CommitParticipantService.CommitParticipantServiceClient(
-                    p.Intercept(new DprClientInterceptor(session)))
-                 : new CommitParticipantService.CommitParticipantServiceClient(p);
             var message = new TwoPCMessage
             {
                 Type = TwoPCMessageType.Prepare,
                 TxnId = request.TxnId,
             };
-            var task = client.SendMessageAsync(message);
-            tasks.Add(task.ResponseAsync);
+            var task = SendMessageAbortOnFailure(p, session, message);
+            tasks.Add(task);
         }
 
         await Task.WhenAll(tasks);
