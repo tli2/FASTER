@@ -101,11 +101,10 @@ public class Program
                         finder.ForceRollback();
                     else
                     {
-                        var channel = GrpcChannel.ForAddress(environment.GetParticipantConnString(0));
                         var session = sessionPool.Checkout();
                         session.UnsafeReset();
                         var client = new CommitParticipantService.CommitParticipantServiceClient(
-                            channel.Intercept(new DprClientInterceptor(session)));
+                            channels[0].Intercept(new DprClientInterceptor(session)));
                         await client.ForceFailoverAsync(new ForceFailoverMessage());
                         sessionPool.Return(session);
                     }
