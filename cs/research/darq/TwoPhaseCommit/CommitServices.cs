@@ -26,9 +26,10 @@ public class CommitLog : StateObject
 {
     private FasterLogSettings settings;
     public FasterLog log;
+    private byte[] previousMetadata;
+    private ConcurrentDictionary<long, CommitStatus> previous = new();
     public ConcurrentDictionary<long, CommitStatus> transactions = new();
-
-
+    
     public CommitLog(FasterLogSettings settings, IVersionScheme versionScheme, DprWorkerOptions options) : base(
         versionScheme, options)
     {
@@ -43,40 +44,21 @@ public class CommitLog : StateObject
 
     public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
     {
+        previous.Clear();
+        previousMetadata = metadata.ToArray();
+        foreach (var entry in transactions)
+            previous[entry.Key] = entry.Value;
         log.CommitStrongly(out _, out _, false, metadata.ToArray(), version, onPersist);
     }
 
     public override unsafe void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
     {
-        log = new FasterLog(settings);
-        log.Recover(version);
-        metadata = log.RecoveredCookie;
-        var iterator = log.Scan(0, long.MaxValue);
-
-        while (iterator.UnsafeGetNext(out var bytes, out var len, out _, out _))
-        {
-            var m = TwoPCMessage.Parser.ParseFrom(new Span<byte>(bytes, len));
-            iterator.UnsafeRelease();
-            switch (m.Type)
-            {
-                case TwoPCMessageType.Start:
-                    transactions[m.TxnId] = CommitStatus.STARTED;
-                    break;
-                case TwoPCMessageType.VoteY:
-                    transactions[m.TxnId] = CommitStatus.PREPARING;
-                    break;
-                case TwoPCMessageType.Commit:
-                    transactions[m.TxnId] = CommitStatus.COMMIT;
-                    break;
-                case TwoPCMessageType.Abort:
-                    transactions[m.TxnId] = CommitStatus.ABORT;
-                    break;
-                default:
-                    throw new NotImplementedException();
-            }
-        }
-
-        iterator.Dispose();
+        // This is taking very long for some reason --- just simulate a fail over by loading rolling back in-memory
+        // log = new FasterLog(settings);
+        // log.Recover(version);
+        // metadata = log.RecoveredCookie;
+        metadata = previousMetadata;
+        (transactions, previous) = (previous, transactions);
     }
 
     public override void PruneVersion(long version)
@@ -340,7 +322,7 @@ public class CommitParticipantServiceImpl : CommitParticipantService.CommitParti
                 response.Type = TwoPCMessageType.Commit;
                 backend.so.log.Enqueue(new TwoPCMessageEntryWrapper(response), null);
                 response.Type = TwoPCMessageType.Ack;
-                backend.so.transactions[request.TxnId] = CommitStatus.COMMIT;
+                backend.so.transactions.TryRemove(request.TxnId, out _);
                 break;
             case TwoPCMessageType.Abort:
                 response.Type = TwoPCMessageType.Abort;
