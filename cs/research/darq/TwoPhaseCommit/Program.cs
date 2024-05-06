@@ -95,17 +95,20 @@ public class Program
         {
             if (options.Fail && i == numTransactionsToRun / 2)
             {
-                if (options.Speculative)
-                    finder.ForceRollback();
-                else
+                _ = Task.Run(async () =>
                 {
-                    var session = sessionPool.Checkout();
-                    session.UnsafeReset();
-                    var client = new CommitParticipantService.CommitParticipantServiceClient(
-                        channels[0].Intercept(new DprClientInterceptor(session)));
-                    await client.ForceFailoverAsync(new ForceFailoverMessage());
-                    sessionPool.Return(session);
-                }
+                    if (options.Speculative)
+                        finder.ForceRollback();
+                    else
+                    {
+                        var session = sessionPool.Checkout();
+                        session.UnsafeReset();
+                        var client = new CommitParticipantService.CommitParticipantServiceClient(
+                            channels[0].Intercept(new DprClientInterceptor(session)));
+                        await client.ForceFailoverAsync(new ForceFailoverMessage());
+                        sessionPool.Return(session);
+                    }
+                });
             }
             await rateLimiter.WaitAsync();
             var transaction = new TransactionsRequest
