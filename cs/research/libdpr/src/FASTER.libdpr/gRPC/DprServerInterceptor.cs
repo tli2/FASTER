@@ -51,9 +51,6 @@ namespace FASTER.libdpr.gRPC
             else
             {
                 // Non speculative code path
-                // Avoid pommeling the latch when a lengthy, blocking recovery is underway
-                while (_stateObject.failingOver)
-                    await Task.Delay(100);
                 _stateObject.StartLocalAction();
                 var response = await continuation.Invoke(request, context);
                 var version = _stateObject.Version();
