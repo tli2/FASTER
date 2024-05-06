@@ -286,7 +286,7 @@ namespace FASTER.libdpr
         }
 
         public bool failedOver = false;
-
+        public bool failingOver = false;
         public bool failOverRequested = false;
         // For experiments only!
         public void ForceFailover()
@@ -372,10 +372,12 @@ namespace FASTER.libdpr
             if (failOverRequested)
             {
                 failOverRequested = false;
+                failingOver = true;
                 versionScheme.AdvanceVersionWithCriticalSection((vOld, vNew) =>
                 {
                     ActuallyRestore(1, locallyPersistentVersion, vOld, vNew);
                     failedOver = true;
+                    failingOver = false;
                 });
             }
 
