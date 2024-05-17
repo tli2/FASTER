@@ -24,7 +24,7 @@ spec:
           command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
       containers:
         - command:
-            - "TravelReservation/TravelReservation"
+            - "./TravelReservation"
           args: 
             - "-t"
             - "orchestrator"
@@ -35,6 +35,7 @@ spec:
             {{- end }}
           image: tianyuli96/faster:latest
           name: "orchestrator{{ .num }}"
+          workingDir: "TravelReservation/"
           ports:
             - containerPort: {{ $.Values.orchestrator_port }}
             - containerPort: 4022

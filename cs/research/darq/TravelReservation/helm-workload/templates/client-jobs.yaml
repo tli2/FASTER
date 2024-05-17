@@ -27,7 +27,7 @@ spec:
               done;
       containers:
         - command:
-            - "TravelReservation/TravelReservation"
+            - "./TravelReservation"
           args:
             - "-t"
             - "client"
@@ -39,6 +39,7 @@ spec:
             - "{{ $.Values.workload }}-result-{{ .num }}-{{- if $.Values.speculative }}speculative{{- end }}.txt"
             - "-i"
             - "{{ $.Values.window }}"
+          workingDir: "TravelReservation/"
           image: tianyuli96/faster:latest
           name: client{{ .num }}
           ports:

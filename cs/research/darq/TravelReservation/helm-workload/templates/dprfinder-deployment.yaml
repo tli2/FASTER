@@ -18,11 +18,12 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TravelReservation/TravelReservation"
+            - "./TravelReservation"
           args: 
             - "-t"
             - "dprfinder"
           image: tianyuli96/faster:latest
+          workingDir: "TravelReservation/"
           name: dprfinder
           ports:
             - containerPort: 15721
