@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net7.0;net6.0;netstandard2.1;netstandard2.0</TargetFrameworks>
+    <TargetFramework>net7.0</TargetFramework>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -64,5 +64,20 @@
 	  </ItemGroup>
 	</Otherwise>
   </Choose>
+
+  <ItemGroup>
+    <ContentWithTargetPath Include="Device/runtimes/win-x64/native/native_device.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>runtimes/win-x64/native/native_device.dll</TargetPath>
+    </ContentWithTargetPath>
+    <ContentWithTargetPath Include="Device/runtimes/win-x64/native/native_device.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>runtimes/win-x64/native/native_device.pdb</TargetPath>
+    </ContentWithTargetPath>
+    <ContentWithTargetPath Include="Device/runtimes/linux-x64/native/libnative_device.so">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>runtimes/linux-x64/native/libnative_device.so</TargetPath>
+    </ContentWithTargetPath>
+  </ItemGroup>
 
 </Project>

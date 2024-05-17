@@ -57,7 +57,7 @@ public class LocalDebugEnvironment : IEnvironment
     }
 
     public IDevice GetOrchestratorDevice(Options options) =>
-        new ManagedLocalStorageDevice($"D:\\orchestator{options.WorkerName}.log", deleteOnClose: true);
+        new NativeStorageDevice($"D:\\orchestator{options.WorkerName}.log", deleteOnClose: true);
 
     public string GetServiceConnString(int index)
     {
@@ -79,7 +79,7 @@ public class LocalDebugEnvironment : IEnvironment
     }
 
     public IDevice GetServiceDevice(Options options) =>
-        new ManagedLocalStorageDevice($"D:\\service{options.WorkerName}.log", deleteOnClose: true);
+        new NativeStorageDevice($"D:\\service{options.WorkerName}.log", deleteOnClose: true);
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";
 
@@ -129,8 +129,8 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public IDevice GetOrchestratorDevice(Options options)
     {
         if (cleanStart)
-            ManagedLocalStorageDevice.RemoveIfPresent($"/mnt/plrs/orchestrator{options.WorkerName}.log");
-        return new ManagedLocalStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log");
+            NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/orchestrator{options.WorkerName}.log");
+        return new NativeStorageDevice($"/mnt/plrs/orchestrator{options.WorkerName}.log");
     }
 
     public string GetServiceConnString(int index) => $"http://service{index}.dse.svc.cluster.local:15721";
@@ -150,8 +150,8 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public IDevice GetServiceDevice(Options options)
     {
         if (cleanStart)
-            ManagedLocalStorageDevice.RemoveIfPresent($"/mnt/plrs/service{options.WorkerName}.log");
-        return new ManagedLocalStorageDevice($"/mnt/plrs/service{options.WorkerName}.log");
+            NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/service{options.WorkerName}.log");
+        return new NativeStorageDevice($"/mnt/plrs/service{options.WorkerName}.log");
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -162,12 +162,12 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     {
         if (cleanStart)
         {
-            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
-            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
+            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
+            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
         }
 
-        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1", recoverDevice: true);
-        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2", recoverDevice: true);
+        var device1 = new NativeStorageDevice("/mnt/plrs/finder1");
+        var device2 = new NativeStorageDevice("/mnt/plrs/finder2");
         return new PingPongDevice(device1, device2, true);
     }
 

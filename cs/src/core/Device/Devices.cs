@@ -28,17 +28,7 @@ namespace FASTER.core
         /// <returns>Device instance</returns>
         public static IDevice CreateLogDevice(string logPath, bool preallocateFile = false, bool deleteOnClose = false, long capacity = CAPACITY_UNSPECIFIED, bool recoverDevice = false, bool useIoCompletionPort = false, bool disableFileBuffering = true)
         {
-            IDevice logDevice;
-
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                logDevice = new ManagedLocalStorageDevice(logPath, preallocateFile, deleteOnClose, disableFileBuffering, capacity, recoverDevice);
-            }
-            else
-            {
-                logDevice = new LocalStorageDevice(logPath, preallocateFile, deleteOnClose, disableFileBuffering, capacity, recoverDevice, useIoCompletionPort);
-            }
-            return logDevice;
+            return new NativeStorageDevice(logPath, deleteOnClose, disableFileBuffering, capacity);
         }
     }
 }

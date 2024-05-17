@@ -55,7 +55,7 @@ public class LocalDebugEnvironment : IEnvironment
 
     public IDevice GetDarqDevice(int topicId)
     {
-        return new ManagedLocalStorageDevice($"D:\\darq{topicId}.log", deleteOnClose: true);
+        return new NativeStorageDevice($"D:\\darq{topicId}.log", deleteOnClose: true);
     }
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";
@@ -119,8 +119,8 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public IDevice GetDarqDevice(int topicId)
     {
         if (cleanStart)
-            ManagedLocalStorageDevice.RemoveIfPresent($"/mnt/plrs/darq{topicId}.log");
-        return new ManagedLocalStorageDevice($"/mnt/plrs/darq{topicId}.log");
+            NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/darq{topicId}.log");
+        return new NativeStorageDevice($"/mnt/plrs/darq{topicId}.log");
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -131,12 +131,12 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     {
         if (cleanStart)
         {
-            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
-            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
+            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
+            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
         }
 
-        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1", recoverDevice: true);
-        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2", recoverDevice: true);
+        var device1 = new NativeStorageDevice("/mnt/plrs/finder1");
+        var device2 = new NativeStorageDevice("/mnt/plrs/finder2");
         return new PingPongDevice(device1, device2, true);
     }
 
@@ -183,7 +183,7 @@ public class KubernetesLocalStorageEnvironmentForRecovery : IEnvironment
 
     public IDevice GetDarqDevice(int topicId)
     {
-        return new ManagedLocalStorageDevice($"/mnt/plrs/darq{topicId}.log");
+        return new NativeStorageDevice($"/mnt/plrs/darq{topicId}.log");
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -192,8 +192,8 @@ public class KubernetesLocalStorageEnvironmentForRecovery : IEnvironment
 
     public PingPongDevice GetDprFinderDevice()
     {
-        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1", recoverDevice: true);
-        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2", recoverDevice: true);
+        var device1 = new NativeStorageDevice("/mnt/plrs/finder1");
+        var device2 = new NativeStorageDevice("/mnt/plrs/finder2");
         return new PingPongDevice(device1, device2, true);
     }
 

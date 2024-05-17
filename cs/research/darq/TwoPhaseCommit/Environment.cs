@@ -48,12 +48,12 @@ public class LocalDebugEnvironment : IEnvironment
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\coordinator{options.WorkerName}"), removeOutdated: false);
-        // result.PurgeAll();
+        result.PurgeAll();
         return result;
     }
 
     public IDevice GetCoordinatorDevice(Options options) =>
-        new ManagedLocalStorageDevice($"D:\\coordinator{options.WorkerName}.log", deleteOnClose: false);
+        new NativeStorageDevice($"D:\\coordinator{options.WorkerName}.log", deleteOnClose: false);
 
     public string GetParticipantConnString(int index)
     {
@@ -70,11 +70,11 @@ public class LocalDebugEnvironment : IEnvironment
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"D:\\participant{options.WorkerName}"), removeOutdated: false);
-        // result.PurgeAll();
+        result.PurgeAll();
         return result;    
     }
 
-    public IDevice GetParticipantDevice(Options options) => new ManagedLocalStorageDevice($"D:\\participant{options.WorkerName}.log", deleteOnClose: false);
+    public IDevice GetParticipantDevice(Options options) => new NativeStorageDevice($"D:\\participant{options.WorkerName}.log", deleteOnClose: false);
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";
 
@@ -129,8 +129,8 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public IDevice GetCoordinatorDevice(Options options)
     {
         if (cleanStart)
-            ManagedLocalStorageDevice.RemoveIfPresent($"/mnt/plrs/coordinator{options.WorkerName}.log");
-        return new ManagedLocalStorageDevice($"/mnt/plrs/coordinator{options.WorkerName}.log");    
+            NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/coordinator{options.WorkerName}.log");
+        return new NativeStorageDevice($"/mnt/plrs/coordinator{options.WorkerName}.log");    
     }
 
     public string GetParticipantConnString(int index)
@@ -156,8 +156,8 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     public IDevice GetParticipantDevice(Options options)
     {
         if (cleanStart)
-            ManagedLocalStorageDevice.RemoveIfPresent($"/mnt/plrs/participant{options.WorkerName}.log");
-        return new ManagedLocalStorageDevice($"/mnt/plrs/participant{options.WorkerName}.log");
+            NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/participant{options.WorkerName}.log");
+        return new NativeStorageDevice($"/mnt/plrs/participant{options.WorkerName}.log");
     }
 
     public string GetDprFinderConnString() => "http://dprfinder.dse.svc.cluster.local:15721";
@@ -168,12 +168,12 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
     {
         if (cleanStart)
         {
-            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
-            ManagedLocalStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
+            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
+            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
         }
 
-        var device1 = new ManagedLocalStorageDevice("/mnt/plrs/finder1", recoverDevice: true);
-        var device2 = new ManagedLocalStorageDevice("/mnt/plrs/finder2", recoverDevice: true);
+        var device1 = new NativeStorageDevice("/mnt/plrs/finder1");
+        var device2 = new NativeStorageDevice("/mnt/plrs/finder2");
         return new PingPongDevice(device1, device2, true);
     }
 
