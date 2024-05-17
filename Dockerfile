@@ -23,7 +23,9 @@ RUN dotnet restore
 RUN dotnet publish -c Release -o out
 
 FROM mcr.microsoft.com/dotnet/aspnet:7.0
+RUN apt-get update && apt-get install -y libaio1
 WORKDIR /app
+
 COPY --from=build-env /app/TravelReservation-latency ./TravelReservation-latency
 COPY --from=build-env /app/TravelReservation-thr ./TravelReservation-thr
 COPY --from=build-env /app/EventProcessing-latency ./EventProcessing-latency
