@@ -35,7 +35,7 @@ spec:
             {{- end }}
           image: tianyuli96/faster:latest
           name: "orchestrator{{ .num }}"
-          workingDir: "TravelReservation/"
+          workingDir: "/app/TravelReservation/"
           ports:
             - containerPort: {{ $.Values.orchestrator_port }}
             - containerPort: 4022

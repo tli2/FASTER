@@ -36,7 +36,7 @@ spec:
             - "-s"
             {{- end }}
           image: tianyuli96/faster:latest
-          workingDir: "TravelReservation/"
+          workingDir: "/app/TravelReservation/"
           name: service{{ .num }}
           ports:
             - containerPort: 15721
