@@ -117,16 +117,18 @@ public class Program
             _ = Task.Run(async () =>
             {
                 // Console.WriteLine($"Starting transaction number {transaction.TxnId}");
-                var session = sessionPool.Checkout();
-                session.UnsafeReset();
+
                 try
                 {
                     foreach (var channel in channels)
                     {
+                        var session = sessionPool.Checkout();
+                        session.UnsafeReset();
                         // Speculatively send transactions 
                         var client = new CommitParticipantService.CommitParticipantServiceClient(
                             channel.Intercept(new DprClientInterceptor(session)));
                         await client.StartTransactionAsync(transaction);
+                        sessionPool.Return(session);
                     }
 
                     // Commit is non-speculative
@@ -144,7 +146,6 @@ public class Program
                 }
                 finally
                 {
-                    sessionPool.Return(session);
                     rateLimiter.Release();
                     countdownEvent.Signal();
                 }
