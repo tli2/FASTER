@@ -6,12 +6,10 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Threading.RateLimiting;
 using System.Threading.Tasks;
 using FASTER.common;
 using FASTER.core;
 using Google.Protobuf;
-using Microsoft.Extensions.Options;
 
 namespace FASTER.libdpr
 {
@@ -23,6 +21,7 @@ namespace FASTER.libdpr
     /// <typeparam name="TStateObject"> type of state object</typeparam>
     public abstract class StateObject : IDisposable
     {
+        private const int VERSION_DRIFT_TOLERANCE = 2;
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         public readonly DprWorkerOptions options;
 
@@ -453,7 +452,7 @@ namespace FASTER.libdpr
             var (wl, v) = GetWorldLineAndVersion(headerBytes);
 
             // Apply the commit ordering rule, taking checkpoints if necessary.
-            if (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -494,7 +493,7 @@ namespace FASTER.libdpr
         {
             var (wl, v) = GetWorldLineAndVersion(headerBytes.Span);
 
-            if (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -535,7 +534,7 @@ namespace FASTER.libdpr
             var (wl, v) = GetWorldLineAndVersion(headerBytes);
 
             // Apply the commit ordering rule, taking checkpoints if necessary.
-            if (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -576,7 +575,7 @@ namespace FASTER.libdpr
             var wl = session.WorldLine;
             var v = session.version;
 
-            if (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -623,7 +622,7 @@ namespace FASTER.libdpr
             var wl = session.WorldLine;
             var v = session.version;
 
-            if (v > versionScheme.CurrentState().Version)
+            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
