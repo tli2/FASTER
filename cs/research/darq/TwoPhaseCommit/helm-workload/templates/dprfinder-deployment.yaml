@@ -18,10 +18,11 @@ spec:
       priorityClassName: high-priority
       containers:
         - command:
-            - "TwoPhaseCommit/TwoPhaseCommit"
+            - "./TwoPhaseCommit"
           args:
             - "-t"
             - "dprfinder"
+          workingDir: "/app/TwoPhaseCommit"
           image: tianyuli96/faster:latest
           name: dprfinder
           ports:

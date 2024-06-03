@@ -27,7 +27,7 @@ spec:
           command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
       containers:
         - command:
-            - "TwoPhaseCommit/TwoPhaseCommit"
+            - "./TwoPhaseCommit"
           args:
             - "-t"
             - "participant"
@@ -36,6 +36,7 @@ spec:
             {{- if $.Values.failover }}
             - "-f"
             {{- end }}
+          workingDir: "/app/TwoPhaseCommit"
           image: tianyuli96/faster:latest
           name: participant{{ .num }}
           ports:
