@@ -27,7 +27,7 @@ public class CommitLog : StateObject
     private FasterLogSettings settings;
     public FasterLog log;
     private byte[] previousMetadata;
-    private ConcurrentDictionary<long, CommitStatus> previous = new();
+    private List<KeyValuePair<long, CommitStatus>> previous = new();
     public ConcurrentDictionary<long, CommitStatus> transactions = new();
     
     public CommitLog(FasterLogSettings settings, IVersionScheme versionScheme, DprWorkerOptions options) : base(
@@ -47,7 +47,7 @@ public class CommitLog : StateObject
         previous.Clear();
         previousMetadata = metadata.ToArray();
         foreach (var entry in transactions)
-            previous[entry.Key] = entry.Value;
+            previous.Add(entry);
         log.CommitStrongly(out _, out _, false, metadata.ToArray(), version, onPersist);
     }
 
@@ -58,7 +58,9 @@ public class CommitLog : StateObject
         // log.Recover(version);
         // metadata = log.RecoveredCookie;
         metadata = previousMetadata;
-        (transactions, previous) = (previous, transactions);
+        transactions.Clear();
+        foreach (var entry in previous)
+            transactions[entry.Key] = entry.Value;
     }
 
     public override void PruneVersion(long version)
