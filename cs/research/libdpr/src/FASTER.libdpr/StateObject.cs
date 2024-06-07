@@ -21,7 +21,7 @@ namespace FASTER.libdpr
     /// <typeparam name="TStateObject"> type of state object</typeparam>
     public abstract class StateObject : IDisposable
     {
-        private const int VERSION_DRIFT_TOLERANCE = 2;
+        private const int VERSION_DRIFT_TOLERANCE = 0;
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         public readonly DprWorkerOptions options;
 

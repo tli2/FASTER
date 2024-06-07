@@ -117,7 +117,6 @@ public class Program
             _ = Task.Run(async () =>
             {
                 // Console.WriteLine($"Starting transaction number {transaction.TxnId}");
-
                 try
                 {
                     foreach (var channel in channels)
@@ -203,8 +202,8 @@ public class Program
         {
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
-            CheckpointPeriodMilli = 5,
-            RefreshPeriodMilli = 2
+            CheckpointPeriodMilli = 10,
+            RefreshPeriodMilli = 5
         });
         
         var channels = new List<GrpcChannel>();
@@ -298,8 +297,8 @@ public class Program
         {
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
-            CheckpointPeriodMilli = 5,
-            RefreshPeriodMilli = 2
+            CheckpointPeriodMilli = 10,
+            RefreshPeriodMilli = 5
         });
 
         // TODO(Tianyu): Switch to epoch after testing
