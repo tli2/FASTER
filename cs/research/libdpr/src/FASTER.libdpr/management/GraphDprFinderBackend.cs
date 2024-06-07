@@ -73,6 +73,7 @@ namespace FASTER.libdpr
     /// </summary>
     public class GraphDprFinderBackend
     {
+        private Stopwatch stopwatch = Stopwatch.StartNew();
         // Used to send add/delete worker requests to processing thread
         private readonly ConcurrentQueue<(DprWorkerId, Action<(long, long)>)> addQueue =
             new ConcurrentQueue<(DprWorkerId, Action<(long, long)>)>();
@@ -96,6 +97,7 @@ namespace FASTER.libdpr
         private readonly Queue<WorkerVersion> frontier = new Queue<WorkerVersion>();
         private readonly ConcurrentQueue<WorkerVersion> outstandingWvs = new ConcurrentQueue<WorkerVersion>();
         private readonly HashSet<WorkerVersion> visited = new HashSet<WorkerVersion>();
+        private ConcurrentDictionary<WorkerVersion, long> startTimes;
 
         // Only used during DprFinder recovery
         private readonly RecoveryState recoveryState;
@@ -183,6 +185,9 @@ namespace FASTER.libdpr
             {
                 // Mark cut as changed so we know to serialize the new cut later on
                 cutChanged = true;
+                Console.WriteLine($"WorkerVersion {committed.DprWorkerId}, {committed.Version} is committed at {stopwatch.ElapsedMilliseconds}," +
+                                  $"after {stopwatch.ElapsedMilliseconds - startTimes[committed]} ms");
+
                 var version = currentCut.GetValueOrDefault(committed.DprWorkerId, 0);
                 // Update cut if necessary
                 if (version < committed.Version)
@@ -253,7 +258,7 @@ namespace FASTER.libdpr
 
             // Go through the unprocessed wvs and traverse the graph, unless instructed otherwise, give up after a while
             // to return control to the calling thread 
-            var threshold = tryCommitAll ? outstandingWvs.Count : 100;
+            var threshold = tryCommitAll ? outstandingWvs.Count : Math.Min(100, outstandingWvs.Count);
             for (var i = 0; i < threshold; i++)
             {
                 if (!outstandingWvs.TryDequeue(out var wv)) break;
@@ -310,7 +315,11 @@ namespace FASTER.libdpr
                 if (!precedenceGraph.TryAdd(wv, list))
                     objectPool.Return(list);
                 else
+                {
                     outstandingWvs.Enqueue(wv);
+                    startTimes[wv] = stopwatch.ElapsedMilliseconds;
+                    Console.WriteLine($"WorkerVersion {wv.DprWorkerId}, {wv.Version} was added at {stopwatch.ElapsedMilliseconds}");
+                }
             }
             finally
             {
