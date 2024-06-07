@@ -124,68 +124,19 @@ public class CommitCoordinatorSettings
     public bool speculative;
 }
 
-public class BackgroundSender
-{
-    private CommitCoordinatorSettings settings;
-    private AsyncCollection<TwoPCMessage> messages = new AsyncCollection<TwoPCMessage>();
-    private SemaphoreSlim rateLimiter = new SemaphoreSlim(4);
-    private SimpleObjectPool<DprSession> sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
-
-    public BackgroundSender(CommitCoordinatorSettings settings)
-    {
-        this.settings = settings;
-        Task.Run(async () =>
-        {
-            while (await messages.OutputAvailableAsync())
-            {
-                var m = messages.Take();
-                await rateLimiter.WaitAsync();
-                var session = sessionPool.Checkout();
-                // Don't care about dependencies --- just need acks to come back fast 
-                session.UnsafeReset();
-                try
-                {
-                    foreach (var p in settings.participants)
-                    {
-                        var client =
-                            new CommitParticipantService.CommitParticipantServiceClient(
-                                p.Intercept(new DprClientInterceptor(session)));
-                        await client.SendMessageAsync(m);
-                    }
-                }
-                catch (Exception e)
-                {
-                    // Ignore exceptions
-                }
-                finally
-                {
-                    rateLimiter.Release();
-                    sessionPool.Return(session);
-                }
-            }
-        });
-    }
-    
-
-    // Either a commit or abort to send to participants in the background
-    public void AddOutcome(TwoPCMessage message)
-    {
-        messages.Add(message);
-    }
-}
-
 // TODO(Tianyu): Currently not properly fault-tolerant with retries, etc, but will not cause anomalies.
 public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoordinatorServiceBase
 {
     private CommitCoordinatorSettings settings;
     private CommitLogBackgroundService backend;
-    private BackgroundSender sender;
+    private SemaphoreSlim rateLimiter = new(32, 32);
+    private SimpleObjectPool<DprSession> sessionPool = new(() => new DprSession());
+
 
     public CommitCoordinatorServiceImpl(CommitLogBackgroundService backend, CommitCoordinatorSettings settings)
     {
         this.settings = settings;
         this.backend = backend;
-        this.sender = new BackgroundSender(settings);
     }
 
     private async Task<TwoPCMessage> SendMessageAbortOnFailure(GrpcChannel p, DprSession session, TwoPCMessage m) 
@@ -207,6 +158,37 @@ public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoord
                 TxnId = m.TxnId,
             };
         }
+    }
+
+    private async Task SendDecisionToWorkers(TwoPCMessage m)
+    {
+        await rateLimiter.WaitAsync();
+        var session = sessionPool.Checkout();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                foreach (var p in settings.participants)
+                {
+                    // Don't care about dependencies --- just need acks to come back fast 
+                    session.UnsafeReset();
+                    var client =
+                        new CommitParticipantService.CommitParticipantServiceClient(
+                            p.Intercept(new DprClientInterceptor(session)));
+                    await client.SendMessageAsync(m);
+                }
+
+            }
+            finally
+            {
+                rateLimiter.Release();
+                sessionPool.Return(session);
+            }
+
+            backend.so.StartLocalAction();
+            backend.so.transactions.TryRemove(m.TxnId, out _);
+            backend.so.EndAction();
+        });
     }
     
     public override async Task<TransactionResponse> Commit(TransactionsRequest request, ServerCallContext context)
@@ -234,7 +216,7 @@ public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoord
                 {
                     backend.so.transactions[request.TxnId] = CommitStatus.ABORT;
                     response.Success = false;
-                    sender.AddOutcome(new TwoPCMessage
+                    await SendDecisionToWorkers(new TwoPCMessage
                     {
                         Type = TwoPCMessageType.Abort,
                         TxnId = request.TxnId,
@@ -252,7 +234,7 @@ public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoord
                 TxnId = request.TxnId,
             }), null);
             response.Success = true;
-            sender.AddOutcome(new TwoPCMessage
+            await SendDecisionToWorkers(new TwoPCMessage
             {
                 Type = TwoPCMessageType.Commit,
                 TxnId = request.TxnId,
