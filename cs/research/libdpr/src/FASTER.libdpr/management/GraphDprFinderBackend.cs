@@ -73,7 +73,6 @@ namespace FASTER.libdpr
     /// </summary>
     public class GraphDprFinderBackend
     {
-        private Stopwatch stopwatch = Stopwatch.StartNew();
         // Used to send add/delete worker requests to processing thread
         private readonly ConcurrentQueue<(DprWorkerId, Action<(long, long)>)> addQueue =
             new ConcurrentQueue<(DprWorkerId, Action<(long, long)>)>();
@@ -97,7 +96,6 @@ namespace FASTER.libdpr
         private readonly Queue<WorkerVersion> frontier = new Queue<WorkerVersion>();
         private readonly ConcurrentQueue<WorkerVersion> outstandingWvs = new ConcurrentQueue<WorkerVersion>();
         private readonly HashSet<WorkerVersion> visited = new HashSet<WorkerVersion>();
-        private ConcurrentDictionary<WorkerVersion, long> startTimes;
 
         // Only used during DprFinder recovery
         private readonly RecoveryState recoveryState;
@@ -185,8 +183,6 @@ namespace FASTER.libdpr
             {
                 // Mark cut as changed so we know to serialize the new cut later on
                 cutChanged = true;
-                Console.WriteLine($"WorkerVersion {committed.DprWorkerId}, {committed.Version} is committed at {stopwatch.ElapsedMilliseconds}," +
-                                  $"after {stopwatch.ElapsedMilliseconds - startTimes[committed]} ms");
 
                 var version = currentCut.GetValueOrDefault(committed.DprWorkerId, 0);
                 // Update cut if necessary
@@ -308,18 +304,14 @@ namespace FASTER.libdpr
 
                 // This may be a duplicate
                 if (currentCut[wv.DprWorkerId] >= wv.Version) return;
-
+                
                 var list = objectPool.Checkout();
                 list.Clear();
                 list.AddRange(deps);
                 if (!precedenceGraph.TryAdd(wv, list))
                     objectPool.Return(list);
                 else
-                {
                     outstandingWvs.Enqueue(wv);
-                    startTimes[wv] = stopwatch.ElapsedMilliseconds;
-                    Console.WriteLine($"WorkerVersion {wv.DprWorkerId}, {wv.Version} was added at {stopwatch.ElapsedMilliseconds}");
-                }
             }
             finally
             {
