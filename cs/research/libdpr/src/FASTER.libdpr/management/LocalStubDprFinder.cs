@@ -1,4 +1,5 @@
 
+using System;
 using System.Collections.Generic;
 
 namespace FASTER.libdpr;
@@ -12,6 +13,11 @@ public class LocalStubDprFinder : IDprFinder
         return persistedVersion;
     }
 
+    public long CurrentTime()
+    {
+        return DateTimeOffset.Now.ToUnixTimeMilliseconds();
+    }
+    
     public long SystemWorldLine()
     {
         return 1;

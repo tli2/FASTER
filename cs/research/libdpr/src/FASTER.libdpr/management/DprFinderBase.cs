@@ -21,6 +21,11 @@ namespace FASTER.libdpr
             backState = new ClusterState();
         }
 
+        public long CurrentTime()
+        {
+            return DateTimeOffset.Now.ToUnixTimeMilliseconds();
+        }
+
         public long SafeVersion(DprWorkerId dprWorkerId)
         {
             return frontCut.TryGetValue(dprWorkerId, out var result) ? result : 0;

@@ -203,7 +203,7 @@ public class Program
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             CheckpointPeriodMilli = 10,
-            RefreshPeriodMilli = 5
+            RefreshPeriodMilli = 1
         });
         
         var channels = new List<GrpcChannel>();
@@ -298,7 +298,7 @@ public class Program
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             CheckpointPeriodMilli = 10,
-            RefreshPeriodMilli = 5
+            RefreshPeriodMilli = 1
         });
 
         // TODO(Tianyu): Switch to epoch after testing

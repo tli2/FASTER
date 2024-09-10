@@ -16,6 +16,8 @@ namespace FASTER.libdpr
     public interface IDprFinder
     {
         public delegate IEnumerable<Memory<byte>> UnprunedVersionsProvider();
+
+        long CurrentTime();
         /// <summary>
         ///     For a given version, returns the largest version number that is recoverable. Method may return arbitrary
         ///     number for a worker that is not part of the cluster. This should be equivalent to calling

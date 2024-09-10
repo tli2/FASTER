@@ -21,7 +21,6 @@ namespace FASTER.libdpr
     /// <typeparam name="TStateObject"> type of state object</typeparam>
     public abstract class StateObject : IDisposable
     {
-        private const int VERSION_DRIFT_TOLERANCE = 0;
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         public readonly DprWorkerOptions options;
 
@@ -30,9 +29,7 @@ namespace FASTER.libdpr
         protected readonly IVersionScheme versionScheme;
         private long worldLine = 1;
 
-        private long lastCheckpointMilli, lastRefreshMilli;
-        private Stopwatch sw = Stopwatch.StartNew();
-
+        private long lastRefreshMilli;
         private readonly byte[] depSerializationArray;
         private List<IStateObjectAttachment> attachments = new();
         private byte[] metadataBuffer = new byte[1 << 20];
@@ -304,14 +301,8 @@ namespace FASTER.libdpr
         private bool BeginCheckpoint(long targetVersion = -1)
         {
             if (versionScheme.CurrentState().Phase != VersionSchemeState.REST) return false;
-            if (versionScheme.TryExecuteStateMachine(new CheckpointStateMachine(this, targetVersion)) ==
-                StateMachineExecutionStatus.OK)
-            {
-                core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
-                return true;
-            }
-
-            return false;
+            return versionScheme.TryExecuteStateMachine(new CheckpointStateMachine(this, targetVersion)) ==
+                   StateMachineExecutionStatus.OK;
         }
 
         /// <summary>
@@ -366,7 +357,7 @@ namespace FASTER.libdpr
 
         public void Refresh()
         {
-            var currentTime = sw.ElapsedMilliseconds;
+            var now = DateTimeOffset.Now.ToUnixTimeMilliseconds();
             var lastCommitted = CommittedVersion();
             if (failOverRequested)
             {
@@ -382,24 +373,20 @@ namespace FASTER.libdpr
             if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
                 BeginCheckpoint(largestRequestedCheckpointVersion);
 
-            if (lastRefreshMilli + options.RefreshPeriodMilli < currentTime)
+            if (lastRefreshMilli + options.RefreshPeriodMilli < now)
             {
                 // A false return indicates that the DPR finder does not have a cut available, this is usually due to
                 // restart from crash, at which point we should resend the graph 
                 options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
-                core.Utility.MonotonicUpdate(ref lastRefreshMilli, currentTime, out _);
+                core.Utility.MonotonicUpdate(ref lastRefreshMilli, now, out _);
                 if (worldLine != options.DprFinder.SystemWorldLine())
                     BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
             }
-
-            if (lastCheckpointMilli + options.CheckpointPeriodMilli <= currentTime)
-            {
-                // TODO(Tianyu): Should avoid unnecessarily performing a checkpoint when underlying state object has not changed
-                // TODO(Tianyu): Study when to fast-forward a version by more than one
-                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
-                    versionScheme.CurrentState().Version + 1, out _);
+            
+            core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
+                options.DprFinder.CurrentTime() / options.CheckpointPeriodMilli, out _);
+            if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
                 BeginCheckpoint(largestRequestedCheckpointVersion);
-            }
 
             // Can prune dependency information of committed versions
             var newCommitted = CommittedVersion();
@@ -452,7 +439,7 @@ namespace FASTER.libdpr
             var (wl, v) = GetWorldLineAndVersion(headerBytes);
 
             // Apply the commit ordering rule, taking checkpoints if necessary.
-            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
+            if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -493,7 +480,7 @@ namespace FASTER.libdpr
         {
             var (wl, v) = GetWorldLineAndVersion(headerBytes.Span);
 
-            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
+            if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -534,7 +521,7 @@ namespace FASTER.libdpr
             var (wl, v) = GetWorldLineAndVersion(headerBytes);
 
             // Apply the commit ordering rule, taking checkpoints if necessary.
-            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
+            if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -575,7 +562,7 @@ namespace FASTER.libdpr
             var wl = session.WorldLine;
             var v = session.version;
 
-            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
+            if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -622,7 +609,7 @@ namespace FASTER.libdpr
             var wl = session.WorldLine;
             var v = session.version;
 
-            if (v > versionScheme.CurrentState().Version + VERSION_DRIFT_TOLERANCE)
+            if (v > versionScheme.CurrentState().Version)
             {
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion, v, out _);
                 while (v > versionScheme.CurrentState().Version)
@@ -726,7 +713,6 @@ namespace FASTER.libdpr
         /// <param name="targetVersion"> the version to jump to after the checkpoint, or -1 for the immediate next version</param>
         public void ForceCheckpoint(long targetVersion = -1)
         {
-            core.Utility.MonotonicUpdate(ref lastCheckpointMilli, sw.ElapsedMilliseconds, out _);
             BeginCheckpoint(targetVersion);
         }
 
