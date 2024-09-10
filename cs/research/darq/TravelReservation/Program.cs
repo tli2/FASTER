@@ -109,6 +109,7 @@ public class Program
             timedRequests.Add(ValueTuple.Create(timestamp, request));
         }
 
+        Thread.Sleep(10000);
         Console.WriteLine("Creating gRPC connections...");
         // Keep a few channels around and reuse them 
         var channelPool = new List<GrpcChannel>();
