@@ -146,31 +146,38 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         rateLimiter.Wait();
         Task.Run(async () =>
         {
-            var channel = connectionPool.GetOrAdd(index,
-                i => GrpcChannel.ForAddress(environment.GetServiceConnString(i)));
-            var client = speculative
-                ? new FasterKVReservationService.FasterKVReservationServiceClient(
-                    channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
-                : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
-
-            Console.WriteLine($"Workflow with id {workflowId} is starting reservation number {index}");
-            var result = await client.MakeReservationAsync(toExecute[index]);
-            Console.WriteLine($"Workflow with id {workflowId} has completed reservation number {index}");
-            var stepRequest = stepRequestPool.Checkout();
-            var requestBuilder = new StepRequestBuilder(stepRequest);
-            requestBuilder.MarkMessageConsumed(lsn);
-            requestBuilder.AddSelfMessage(new ActivityDarqEntry
+            try
             {
-                workflowId = workflowId,
-                type = result.Ok
-                    ? ReservationWorkflowMessageTypes.RESERVATION_START
-                    : ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
-                index = result.Ok ? index + 1 : index - 1
-            });
-            // Will always be completed synchronously
-            await c.Step(requestBuilder.FinishStep());
-            stepRequestPool.Return(stepRequest);
-            rateLimiter.Release();
+                var channel = connectionPool.GetOrAdd(index,
+                    i => GrpcChannel.ForAddress(environment.GetServiceConnString(i)));
+                var client = speculative
+                    ? new FasterKVReservationService.FasterKVReservationServiceClient(
+                        channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
+                    : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
+
+                Console.WriteLine($"Workflow with id {workflowId} is starting reservation number {index}");
+                var result = await client.MakeReservationAsync(toExecute[index]);
+                Console.WriteLine($"Workflow with id {workflowId} has completed reservation number {index}");
+                var stepRequest = stepRequestPool.Checkout();
+                var requestBuilder = new StepRequestBuilder(stepRequest);
+                requestBuilder.MarkMessageConsumed(lsn);
+                requestBuilder.AddSelfMessage(new ActivityDarqEntry
+                {
+                    workflowId = workflowId,
+                    type = result.Ok
+                        ? ReservationWorkflowMessageTypes.RESERVATION_START
+                        : ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
+                    index = result.Ok ? index + 1 : index - 1
+                });
+                // Will always be completed synchronously
+                await c.Step(requestBuilder.FinishStep());
+                stepRequestPool.Return(stepRequest);
+                rateLimiter.Release();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
         });
     }
 
@@ -188,29 +195,36 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
         rateLimiter.Wait();
         Task.Run(async () =>
         {
-            var channel = connectionPool.GetOrAdd(index,
-                k => GrpcChannel.ForAddress(environment.GetServiceConnString(index)));
-            var client = speculative
-                ? new FasterKVReservationService.FasterKVReservationServiceClient(
-                    channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
-                : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
-
-            Console.WriteLine($"Workflow with id {workflowId} is cancelling reservation number {index}");
-            await client.CancelReservationAsync(toExecute[index]);
-            Console.WriteLine($"Workflow with id {workflowId} has cancelled reservation number {index}");
-            var stepRequest = stepRequestPool.Checkout();
-            var requestBuilder = new StepRequestBuilder(stepRequest);
-            requestBuilder.MarkMessageConsumed(lsn);
-            requestBuilder.AddSelfMessage(new ActivityDarqEntry
+            try
             {
-                workflowId = workflowId,
-                type = ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
-                index = index - 1
-            });
-            // Will always be completed synchronously
-            await c.Step(requestBuilder.FinishStep());
-            stepRequestPool.Return(stepRequest);
-            rateLimiter.Release();
+                var channel = connectionPool.GetOrAdd(index,
+                    k => GrpcChannel.ForAddress(environment.GetServiceConnString(index)));
+                var client = speculative
+                    ? new FasterKVReservationService.FasterKVReservationServiceClient(
+                        channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
+                    : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
+
+                Console.WriteLine($"Workflow with id {workflowId} is cancelling reservation number {index}");
+                await client.CancelReservationAsync(toExecute[index]);
+                Console.WriteLine($"Workflow with id {workflowId} has cancelled reservation number {index}");
+                var stepRequest = stepRequestPool.Checkout();
+                var requestBuilder = new StepRequestBuilder(stepRequest);
+                requestBuilder.MarkMessageConsumed(lsn);
+                requestBuilder.AddSelfMessage(new ActivityDarqEntry
+                {
+                    workflowId = workflowId,
+                    type = ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
+                    index = index - 1
+                });
+                // Will always be completed synchronously
+                await c.Step(requestBuilder.FinishStep());
+                stepRequestPool.Return(stepRequest);
+                rateLimiter.Release();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
         });
     }
 
