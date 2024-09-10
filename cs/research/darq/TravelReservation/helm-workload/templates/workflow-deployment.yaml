@@ -16,7 +16,6 @@ spec:
       labels:
         service: "orchestrator"
     spec:
-      priorityClassName: high-priority
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-for-dprfinder{{ .num }}

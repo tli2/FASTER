@@ -18,7 +18,6 @@ spec:
         type: pubsub
         service: pubsub{{ .num }}
     spec:
-      priorityClassName: high-priority
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-for-dprfinder{{ .num }}

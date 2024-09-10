@@ -15,7 +15,6 @@ spec:
       labels:
         service: dprfinder
     spec:
-      priorityClassName: high-priority
       containers:
         - command:
             - "./TravelReservation"

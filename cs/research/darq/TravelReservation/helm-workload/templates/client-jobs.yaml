@@ -6,7 +6,6 @@ metadata:
 spec:
   template:
     spec:
-      priorityClassName: high-priority
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-all

@@ -18,7 +18,6 @@ spec:
         type: participant
         service: participant{{ .num }}
     spec:
-      priorityClassName: high-priority
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-for-dprfinder{{ .num }}

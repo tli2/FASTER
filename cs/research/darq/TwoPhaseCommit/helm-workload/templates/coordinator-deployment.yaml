@@ -17,7 +17,6 @@ spec:
         type: coordinator
         service: coordinator
     spec:
-      priorityClassName: high-priority
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-for-dprfinder
