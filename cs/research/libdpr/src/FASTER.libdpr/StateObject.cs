@@ -24,6 +24,7 @@ namespace FASTER.libdpr
         private readonly SimpleObjectPool<LightDependencySet> dependencySetPool;
         public readonly DprWorkerOptions options;
 
+        private ConcurrentQueue<long> uncommittedVersions = new();
         private readonly ConcurrentDictionary<long, LightDependencySet> versions;
         private readonly ConcurrentDictionary<long, TaskCompletionSource> versionTcs = new();
         protected readonly IVersionScheme versionScheme;
@@ -44,6 +45,7 @@ namespace FASTER.libdpr
 
         // TODO(Tianyu): Used for recovery now -- convert to task based similar to commit path
         private SemaphoreSlim rateLimiter = new(1, 1);
+        
 
         private class CheckpointStateMachine : VersionSchemeStateMachine
         {
@@ -127,6 +129,7 @@ namespace FASTER.libdpr
                     var newDeps = so.dependencySetPool.Checkout();
                     if (fromState.Version != 0) newDeps.Update(so.options.Me, fromState.Version);
                     var success = so.versions.TryAdd(toState.Version, newDeps);
+                    so.uncommittedVersions.Enqueue(toState.Version);
                     Debug.Assert(success);
                     so.versionTcs.TryAdd(toState.Version,
                         new TaskCompletionSource());
@@ -232,6 +235,7 @@ namespace FASTER.libdpr
                 deps.Update(options.Me, vOld);
             var success = versions.TryAdd(vNew, deps);
             versionTcs.TryAdd(vNew, new TaskCompletionSource());
+            uncommittedVersions.Enqueue(vNew);
 
             Debug.Assert(success);
             worldLine = newWorldLine;
@@ -272,6 +276,7 @@ namespace FASTER.libdpr
                         if (vOld != 0)
                             newDeps.Update(options.Me, vOld);
                         var success = versions.TryAdd(vNew, newDeps);
+                        uncommittedVersions.Enqueue(vNew);
                         versionTcs.TryAdd(vNew,
                             new TaskCompletionSource());
                         Debug.Assert(success);
@@ -332,6 +337,7 @@ namespace FASTER.libdpr
                 var deps = dependencySetPool.Checkout();
                 var success = versions.TryAdd(1, deps);
                 versionTcs.TryAdd(1, new TaskCompletionSource());
+                uncommittedVersions.Enqueue(1);
                 Debug.Assert(success);
             }
 
@@ -385,19 +391,17 @@ namespace FASTER.libdpr
             
             core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
                 options.DprFinder.CurrentTime() / options.CheckpointPeriodMilli, out _);
-            if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
-                BeginCheckpoint(largestRequestedCheckpointVersion);
 
             // Can prune dependency information of committed versions
             var newCommitted = CommittedVersion();
 
-            for (var i = lastCommitted; i <= newCommitted; i++)
-                if (i != 0)
-                {
-                    if (i != newCommitted) PruneVersion(i);
-                    if (versionTcs.TryRemove(i, out var tcs))
-                        tcs.SetResult();
-                }
+            while (uncommittedVersions.TryPeek(out var v) && v <= newCommitted)
+            {
+                if (v != newCommitted) PruneVersion(v);
+                if (versionTcs.TryRemove(v, out var tcs))
+                    tcs.SetResult();
+                uncommittedVersions.TryDequeue(out _);
+            }
         }
 
         private unsafe void UpdateDeps(ReadOnlySpan<byte> headerBytes)
