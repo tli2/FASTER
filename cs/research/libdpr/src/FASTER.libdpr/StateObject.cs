@@ -404,10 +404,10 @@ namespace FASTER.libdpr
             // Can prune dependency information of committed versions
             var newCommitted = CommittedVersion();
 
-            for (var i = lastCommitted; i < newCommitted; i++)
+            for (var i = lastCommitted; i <= newCommitted; i++)
                 if (i != 0)
                 {
-                    PruneVersion(i);
+                    if (i != newCommitted) PruneVersion(i);
                     if (versionTcs.TryRemove(i, out var tcs))
                         tcs.SetResult();
                 }
