@@ -132,7 +132,7 @@ namespace FASTER.libdpr
                     var success = so.versions.TryAdd(toState.Version, newDeps);
                     Debug.Assert(success);
                     so.versionTcs.TryAdd(toState.Version,
-                        new TaskCompletionSource());
+                        new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                 }
             }
 
@@ -141,7 +141,7 @@ namespace FASTER.libdpr
                 if (state.Phase == IN_PROG)
                 {
                     so.nextVersionBegin.SetResult();
-                    so.nextVersionBegin = new TaskCompletionSource();
+                    so.nextVersionBegin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 }
             }
         }
@@ -234,7 +234,7 @@ namespace FASTER.libdpr
             if (vOld != 0)
                 deps.Update(options.Me, vOld);
             var success = versions.TryAdd(vNew, deps);
-            versionTcs.TryAdd(vNew, new TaskCompletionSource());
+            versionTcs.TryAdd(vNew, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 
             Debug.Assert(success);
             worldLine = newWorldLine;
@@ -276,7 +276,7 @@ namespace FASTER.libdpr
                             newDeps.Update(options.Me, vOld);
                         var success = versions.TryAdd(vNew, newDeps);
                         versionTcs.TryAdd(vNew,
-                            new TaskCompletionSource());
+                            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                         Debug.Assert(success);
                         worldLine = newWorldLine;
                     }
@@ -340,7 +340,7 @@ namespace FASTER.libdpr
             {
                 var deps = dependencySetPool.Checkout();
                 var success = versions.TryAdd(1, deps);
-                versionTcs.TryAdd(1, new TaskCompletionSource());
+                versionTcs.TryAdd(1, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                 Debug.Assert(success);
             }
 
