@@ -412,7 +412,7 @@ namespace FASTER.libdpr
             // could get processed at a future version instead due to thread timing. However, this is not a correctness
             // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
             var deps = versions[versionScheme.CurrentState().Version];
-            if (!header.SrcWorkerId.Equals(DprWorkerId.INVALID))
+            if (!header.SrcWorkerId.Equals(DprWorkerId.INVALID) && header.SrcWorkerId != Me())
                 deps.Update(header.SrcWorkerId, header.Version);
             unsafe
             {
@@ -422,7 +422,8 @@ namespace FASTER.libdpr
                     for (var i = 0; i < header.NumClientDeps; i++)
                     {
                         ref var wv = ref Unsafe.AsRef<WorkerVersion>(depsHead);
-                        deps.Update(wv.DprWorkerId, wv.Version);
+                        if (wv.DprWorkerId != Me())
+                            deps.Update(wv.DprWorkerId, wv.Version);
                         depsHead += sizeof(WorkerVersion);
                     }
                 }
@@ -603,7 +604,8 @@ namespace FASTER.libdpr
             // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
             var deps = versions[versionScheme.CurrentState().Version];
             foreach (var wv in session.deps)
-                deps.Update(wv.DprWorkerId, wv.Version);
+                if (wv.DprWorkerId != Me())
+                    deps.Update(wv.DprWorkerId, wv.Version);
             return true;
         }
 
@@ -650,7 +652,8 @@ namespace FASTER.libdpr
             // issue, nor do we lose much precision as batch-level dependency tracking is already an approximation.
             var deps = versions[versionScheme.CurrentState().Version];
             foreach (var wv in session.deps)
-                deps.Update(wv.DprWorkerId, wv.Version);
+                if (wv.DprWorkerId != Me())
+                    deps.Update(wv.DprWorkerId, wv.Version);
             return true;
         }
 
