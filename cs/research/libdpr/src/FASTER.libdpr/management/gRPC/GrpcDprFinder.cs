@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FASTER.libdpr.proto;
 using Grpc.Core;
@@ -9,6 +10,7 @@ namespace FASTER.libdpr
     {
         private string connString;
         private DprFinder.DprFinderClient finderClient;
+        private long drift;
 
         public GrpcDprFinder(string connString)
         {
@@ -16,6 +18,11 @@ namespace FASTER.libdpr
             finderClient = new DprFinder.DprFinderClient(GrpcChannel.ForAddress(connString));
         }
 
+        public override long CurrentTime()
+        {
+            return DateTimeOffset.Now.ToUnixTimeMilliseconds() + drift;
+        }
+        
         public override void ReportNewPersistentVersion(long worldLine, WorkerVersion persisted,
             IEnumerable<WorkerVersion> deps)
         {
@@ -50,6 +57,7 @@ namespace FASTER.libdpr
                 var response = finderClient.Sync(new SyncRequest());
                 if (response.CurrentCut.Count == 0) return false;
 
+                drift = (response.CurrentTime - DateTimeOffset.Now.ToUnixTimeMilliseconds()) / 2;
                 stateToUpdate.currentWorldLine = response.WorldLine;
                 foreach (var entry in response.WorldLinePrefix)
                     stateToUpdate.worldLinePrefix.Add(new DprWorkerId(entry.Id), entry.Version);

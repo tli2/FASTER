@@ -11,21 +11,19 @@ namespace FASTER.libdpr
 {
     public class GrpcPrecomputedSyncResponse : PrecomputedSyncResponseBase
     {
-        internal SyncResponse obj = new SyncResponse();
+        internal SyncResponse obj = new();
         public override void ResetClusterState(ClusterState clusterState)
         {
             lock (this)
             {
-                var newResponse = new SyncResponse(obj);
-                newResponse.WorldLine = clusterState.currentWorldLine;
-                newResponse.WorldLinePrefix.Clear();
+                obj.WorldLine = clusterState.currentWorldLine;
+                obj.WorldLinePrefix.Clear();
                 foreach (var entry in clusterState.worldLinePrefix)
-                    newResponse.WorldLinePrefix.Add(new proto.WorkerVersion
+                    obj.WorldLinePrefix.Add(new proto.WorkerVersion
                     {
                         Id = entry.Key.guid,
                         Version = entry.Value
                     });
-                obj = newResponse;
             }
         }
 
@@ -33,16 +31,13 @@ namespace FASTER.libdpr
         {
             lock (this)
             {
-                var newResponse = new SyncResponse(obj);
-
-                newResponse.CurrentCut.Clear();
+                obj.CurrentCut.Clear();
                 foreach (var entry in newCut)
-                    newResponse.CurrentCut.Add(new proto.WorkerVersion
+                    obj.CurrentCut.Add(new proto.WorkerVersion
                     {
                         Id = entry.Key.guid,
                         Version = entry.Value
                     });
-                obj = newResponse;
             }
         }
     }
@@ -109,7 +104,14 @@ namespace FASTER.libdpr
 
         public Task<SyncResponse> Sync()
         {
-            return Task.FromResult(response.obj);
+            SyncResponse responseCopy;
+            lock (response)
+            {
+                responseCopy = response.obj;
+            }
+
+            responseCopy.CurrentTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+            return Task.FromResult(responseCopy);
         }
 
         public Task<ResendGraphResponse> ResendGraph(ResendGraphRequest request)

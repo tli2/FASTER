@@ -21,7 +21,7 @@ namespace FASTER.libdpr
             backState = new ClusterState();
         }
 
-        public long CurrentTime()
+        public virtual long CurrentTime()
         {
             return DateTimeOffset.Now.ToUnixTimeMilliseconds();
         }

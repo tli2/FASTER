@@ -42,8 +42,9 @@ message SyncRequest {
 
 message SyncResponse {
   int64 worldLine = 1;
-  repeated WorkerVersion worldLinePrefix = 2;
-  repeated WorkerVersion currentCut = 3;
+  int64 currentTime = 2;
+  repeated WorkerVersion worldLinePrefix = 3;
+  repeated WorkerVersion currentCut = 4;
 }
 
 message ResendGraphRequest {
