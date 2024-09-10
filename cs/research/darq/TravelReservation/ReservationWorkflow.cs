@@ -155,9 +155,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                         channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
                     : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
-                Console.WriteLine($"Workflow with id {workflowId} is starting reservation number {index}");
+                // Console.WriteLine($"Workflow with id {workflowId} is starting reservation number {index}");
                 var result = await client.MakeReservationAsync(toExecute[index]);
-                Console.WriteLine($"Workflow with id {workflowId} has completed reservation number {index}");
+                // Console.WriteLine($"Workflow with id {workflowId} has completed reservation number {index}");
                 var stepRequest = stepRequestPool.Checkout();
                 var requestBuilder = new StepRequestBuilder(stepRequest);
                 requestBuilder.MarkMessageConsumed(lsn);
