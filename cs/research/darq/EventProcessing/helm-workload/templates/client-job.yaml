@@ -31,7 +31,7 @@ spec:
             - "-t"
             - "client"
             - "-w"
-            - "{{.Values.experiment}}/workloads/{{.Values.workload}}.txt"
+            - "/app/{{.Values.experiment}}/workloads/{{.Values.workload}}.txt"
             - "-o"
             - "{{.Values.experiment}}-{{.Values.workload}}-results-c{{.Values.checkpoint_interval}}{{.Values.tag}}"
           image: tianyuli96/faster:latest
