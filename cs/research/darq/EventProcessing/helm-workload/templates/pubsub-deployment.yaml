@@ -38,7 +38,7 @@ spec:
             - "-s"
             {{- end }}
           image: tianyuli96/faster:latest
-          workingDir: "EventProcessing/"
+          workingDir: "/app/EventProcessing/"
           name: pubsub{{ .num }}
           ports:
             - containerPort: 15721

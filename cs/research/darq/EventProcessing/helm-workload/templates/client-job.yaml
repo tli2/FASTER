@@ -35,7 +35,7 @@ spec:
             - "-o"
             - "{{.Values.experiment}}-{{.Values.workload}}-results-c{{.Values.checkpoint_interval}}{{.Values.tag}}"
           image: tianyuli96/faster:latest
-          workingDir: "EventProcessing/"
+          workingDir: "/app/EventProcessing/"
           name: client
           ports:
             - containerPort: 15721

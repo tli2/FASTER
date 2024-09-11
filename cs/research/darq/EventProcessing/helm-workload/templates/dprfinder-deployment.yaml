@@ -22,7 +22,7 @@ spec:
             - "-t"
             - "dprfinder"
           image: tianyuli96/faster:latest
-          workingDir: "EventProcessing/"
+          workingDir: "/app/EventProcessing/"
           name: dprfinder
           ports:
             - containerPort: 15721
