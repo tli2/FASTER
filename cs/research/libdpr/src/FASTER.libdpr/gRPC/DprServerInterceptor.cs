@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FASTER.common;
@@ -27,37 +28,46 @@ namespace FASTER.libdpr.gRPC
             ServerCallContext context,
             UnaryServerMethod<TRequest, TResponse> continuation)
         {
-            var id = Interlocked.Increment(ref requestId);
-            // TODO(Tianyu): Currently only supporting cases where the handler does not pause actions when using EPVS -- otherwise use rw latch
-            var c = new LightEpoch.EpochContext
+            try
             {
-                customId = id
-            };
-            var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
-            if (header != null)
-            {
-                // Speculative code path
-                if (!await _stateObject.TryReceiveAndStartActionAsync(header, c))
-                    // Use an error to signal to caller that this call cannot proceed
-                    // TODO(Tianyu): add more descriptive exception information
-                    throw new RpcException(Status.DefaultCancelled);
-                var response = await continuation.Invoke(request, context);
-                var buf = serializationArrayPool.Checkout();
-                _stateObject.ProduceTagAndEndAction(buf, c);
-                context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
-                serializationArrayPool.Return(buf);
-                return response;
+                var id = Interlocked.Increment(ref requestId);
+                // TODO(Tianyu): Currently only supporting cases where the handler does not pause actions when using EPVS -- otherwise use rw latch
+                var c = new LightEpoch.EpochContext
+                {
+                    customId = id
+                };
+                var header = context.RequestHeaders.GetValueBytes(DprMessageHeader.GprcMetadataKeyName);
+                if (header != null)
+                {
+                    // Speculative code path
+                    if (!await _stateObject.TryReceiveAndStartActionAsync(header, c))
+                        // Use an error to signal to caller that this call cannot proceed
+                        // TODO(Tianyu): add more descriptive exception information
+                        throw new RpcException(Status.DefaultCancelled);
+                    var response = await continuation.Invoke(request, context);
+                    var buf = serializationArrayPool.Checkout();
+                    _stateObject.ProduceTagAndEndAction(buf, c);
+                    context.ResponseTrailers.Add(DprMessageHeader.GprcMetadataKeyName, buf);
+                    serializationArrayPool.Return(buf);
+                    return response;
+                }
+                else
+                {
+                    // Non speculative code path
+                    _stateObject.StartLocalAction();
+                    var response = await continuation.Invoke(request, context);
+                    var version = _stateObject.Version();
+                    _stateObject.EndAction();
+                    // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
+                    await _stateObject.DprCommit(version);
+                    return response;
+                }
             }
-            else
+            catch (Exception e)
             {
-                // Non speculative code path
-                _stateObject.StartLocalAction();
-                var response = await continuation.Invoke(request, context);
-                var version = _stateObject.Version();
-                _stateObject.EndAction();
-                // TODO(Tianyu): Allow custom version headers to avoid waiting on, say, a read into a committed value
-                await _stateObject.DprCommit(version);
-                return response;
+                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace);
+                throw;
             }
         }
     }

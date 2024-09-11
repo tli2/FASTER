@@ -18,10 +18,10 @@ namespace FASTER.libdpr
             finderClient = new DprFinder.DprFinderClient(GrpcChannel.ForAddress(connString));
         }
 
-        // public override long CurrentTime()
-        // {
-            // return DateTimeOffset.Now.ToUnixTimeMilliseconds() + drift;
-        // }
+        public override long CurrentTime()
+        {
+            return DateTimeOffset.Now.ToUnixTimeMilliseconds() + drift;
+        }
         
         public override void ReportNewPersistentVersion(long worldLine, WorkerVersion persisted,
             IEnumerable<WorkerVersion> deps)

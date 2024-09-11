@@ -30,27 +30,36 @@ namespace FASTER.libdpr.gRPC
             ClientInterceptorContext<TRequest, TResponse> context,
             AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
         {
-            var buffer = serializationArrayPool.Checkout();
-            session.TagMessage(buffer);
-            // TODO(Tianyu): Add logic to await for commit if crossing SU
-
-            var headers = context.Options.Headers;
-            if (headers == null)
+            try
             {
-                // TODO(Tianyu): Is this object expensive?
-                headers = new Metadata();
-                var options = context.Options.WithHeaders(headers);
-                context = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, options);
+                var buffer = serializationArrayPool.Checkout();
+                session.TagMessage(buffer);
+                // TODO(Tianyu): Add logic to await for commit if crossing SU
+
+                var headers = context.Options.Headers;
+                if (headers == null)
+                {
+                    // TODO(Tianyu): Is this object expensive?
+                    headers = new Metadata();
+                    var options = context.Options.WithHeaders(headers);
+                    context = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, options);
+                }
+
+                // TODO(Tianyu): Why no span variant?
+                headers.Add(DprMessageHeader.GprcMetadataKeyName, buffer);
+                // TODO(Tianyu): Assuming it is ok now to return into object pool?
+                serializationArrayPool.Return(buffer);
+
+                var call = continuation(request, context);
+                return new AsyncUnaryCall<TResponse>(HandleTrailer(call.ResponseAsync, call.GetTrailers),
+                    call.ResponseHeadersAsync, call.GetStatus, call.GetTrailers, call.Dispose);
             }
-
-            // TODO(Tianyu): Why no span variant?
-            headers.Add(DprMessageHeader.GprcMetadataKeyName, buffer);
-            // TODO(Tianyu): Assuming it is ok now to return into object pool?
-            serializationArrayPool.Return(buffer);
-
-            var call = continuation(request, context);
-            return new AsyncUnaryCall<TResponse>(HandleTrailer(call.ResponseAsync, call.GetTrailers),
-                call.ResponseHeadersAsync, call.GetStatus, call.GetTrailers, call.Dispose);
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace);
+                throw;
+            }
         }
 
 

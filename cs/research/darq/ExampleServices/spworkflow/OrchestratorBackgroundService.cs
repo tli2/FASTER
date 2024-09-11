@@ -89,21 +89,30 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
 
     public bool ProcessMessage(DarqMessage m)
     {
-        var workflowId = BitConverter.ToInt64(m.GetMessageBody());
-        if (workflowId < 0)
-        {         
-            logger.LogWarning($"Replaying Workflow creation for id {-workflowId}");
-            Debug.Assert(m.GetMessageType() == DarqMessageType.RECOVERY);
-            var request = ExecuteWorkflowRequest.Parser.ParseFrom(m.GetMessageBody());
-            var workflow = workflowFactories[request.WorkflowClassId](request.Input.Span, logger);
-            workflow.OnRestart(capabilities, backend);
-            var ok = startedWorkflows.TryAdd(-workflowId, workflow);
-            Debug.Assert(ok);
+        try
+        {
+            var workflowId = BitConverter.ToInt64(m.GetMessageBody());
+            if (workflowId < 0)
+            {
+                logger.LogWarning($"Replaying Workflow creation for id {-workflowId}");
+                Debug.Assert(m.GetMessageType() == DarqMessageType.RECOVERY);
+                var request = ExecuteWorkflowRequest.Parser.ParseFrom(m.GetMessageBody());
+                var workflow = workflowFactories[request.WorkflowClassId](request.Input.Span, logger);
+                workflow.OnRestart(capabilities, backend);
+                var ok = startedWorkflows.TryAdd(-workflowId, workflow);
+                Debug.Assert(ok);
+                return true;
+            }
+
+            startedWorkflows[workflowId].ProcessMessage(m);
             return true;
         }
-
-        startedWorkflows[workflowId].ProcessMessage(m);
-        return true;
+        catch (Exception e)
+        {
+            Console.WriteLine(e.Message);
+            Console.WriteLine(e.StackTrace);
+            throw;
+        }
     }
 
     public void OnRestart(IDarqProcessorClientCapabilities capabilities)

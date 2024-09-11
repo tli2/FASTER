@@ -109,20 +109,29 @@ namespace FASTER.libdpr
                     // Perform checkpoint with a callback to report persistence and clean-up leftover tracking state
                     so.PerformCheckpoint(fromState.Version, new Span<byte>(so.metadataBuffer, 0, length), () =>
                     {
-                        so.versions.TryRemove(fromState.Version, out var deps);
-                        var workerVersion = new WorkerVersion(so.options.Me, fromState.Version);
-                        so.locallyPersistentVersion = fromState.Version;
-                        // TODO(Tianyu): Hack to early commit non-speculative work
-                        if (deps.Count() == 1)
+                        try
                         {
-                            so.versionTcs.TryRemove(fromState.Version, out var tcs);
-                            tcs.SetResult();
-                        }
+                            so.versions.TryRemove(fromState.Version, out var deps);
+                            var workerVersion = new WorkerVersion(so.options.Me, fromState.Version);
+                            so.locallyPersistentVersion = fromState.Version;
+                            Console.WriteLine($"{fromState.Version} is locally persistent");
+                            // TODO(Tianyu): Hack to early commit non-speculative work
+                            if (deps.Count() == 1)
+                            {
+                                so.versionTcs.TryRemove(fromState.Version, out var tcs);
+                                tcs.SetResult();
+                            }
 
-                        so.options.DprFinder.ReportNewPersistentVersion(so.worldLine, workerVersion, deps);
-                        so.dependencySetPool.Return(deps);
-                        checkpointComplete = true;
-                        so.versionScheme.SignalStepAvailable();
+                            so.options.DprFinder.ReportNewPersistentVersion(so.worldLine, workerVersion, deps);
+                            so.dependencySetPool.Return(deps);
+                            checkpointComplete = true;
+                            so.versionScheme.SignalStepAvailable();
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine(e.Message);
+                            Console.WriteLine(e.StackTrace);
+                        }
                     });
 
                     // Prepare new version before any operations can occur in it
@@ -363,45 +372,54 @@ namespace FASTER.libdpr
 
         public void Refresh()
         {
-            var now = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-            var lastCommitted = CommittedVersion();
-            if (failOverRequested)
+            try
             {
-                failOverRequested = false;
-                versionScheme.AdvanceVersionWithCriticalSection((vOld, vNew) =>
+                var now = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+                if (failOverRequested)
                 {
-                    ActuallyRestore(1, locallyPersistentVersion, vOld, vNew);
-                    failedOver = true;
-                });
+                    failOverRequested = false;
+                    versionScheme.AdvanceVersionWithCriticalSection((vOld, vNew) =>
+                    {
+                        ActuallyRestore(1, locallyPersistentVersion, vOld, vNew);
+                        failedOver = true;
+                    });
+                }
+
+
+                if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
+                    BeginCheckpoint(largestRequestedCheckpointVersion);
+
+                if (lastRefreshMilli + options.RefreshPeriodMilli < now)
+                {
+                    // A false return indicates that the DPR finder does not have a cut available, this is usually due to
+                    // restart from crash, at which point we should resend the graph 
+                    options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
+                    core.Utility.MonotonicUpdate(ref lastRefreshMilli, now, out _);
+                    if (worldLine != options.DprFinder.SystemWorldLine())
+                        BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
+                }
+
+                core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
+                    options.DprFinder.CurrentTime() / options.CheckpointPeriodMilli, out _);
+
+                // Can prune dependency information of committed versions
+                var newCommitted = CommittedVersion();
+
+                while (uncommittedVersions.TryPeek(out var v) && v <= newCommitted)
+                {
+                    if (v != newCommitted) PruneVersion(v);
+                    Console.WriteLine($"version {v} has committed");
+                    if (versionTcs.TryRemove(v, out var tcs))
+                        tcs.SetResult();
+                    uncommittedVersions.TryDequeue(out _);
+                }
             }
-
-
-            if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
-                BeginCheckpoint(largestRequestedCheckpointVersion);
-
-            if (lastRefreshMilli + options.RefreshPeriodMilli < now)
+            catch (Exception e)
             {
-                // A false return indicates that the DPR finder does not have a cut available, this is usually due to
-                // restart from crash, at which point we should resend the graph 
-                options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
-                core.Utility.MonotonicUpdate(ref lastRefreshMilli, now, out _);
-                if (worldLine != options.DprFinder.SystemWorldLine())
-                    BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
+                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace);
             }
             
-            core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
-                options.DprFinder.CurrentTime() / options.CheckpointPeriodMilli, out _);
-
-            // Can prune dependency information of committed versions
-            var newCommitted = CommittedVersion();
-
-            while (uncommittedVersions.TryPeek(out var v) && v <= newCommitted)
-            {
-                if (v != newCommitted) PruneVersion(v);
-                if (versionTcs.TryRemove(v, out var tcs))
-                    tcs.SetResult();
-                uncommittedVersions.TryDequeue(out _);
-            }
         }
 
         private unsafe void UpdateDeps(ReadOnlySpan<byte> headerBytes)
