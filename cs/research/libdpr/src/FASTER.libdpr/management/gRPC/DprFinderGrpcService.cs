@@ -107,7 +107,7 @@ namespace FASTER.libdpr
             SyncResponse responseCopy;
             lock (response)
             {
-                responseCopy = response.obj;
+                responseCopy = new SyncResponse(response.obj);
             }
 
             responseCopy.CurrentTime = DateTimeOffset.Now.ToUnixTimeMilliseconds();
