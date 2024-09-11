@@ -26,7 +26,7 @@ spec:
           command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
       containers:
         - command:
-            - "EventProcessing/EventProcessing"
+            - "./EventProcessing"
           args:
             - "-t"
             - "worker"
@@ -38,6 +38,7 @@ spec:
             - "-s"
             {{- end }}
           image: tianyuli96/faster:latest
+          workingDir: "EventProcessing/"
           name: pubsub{{ .num }}
           ports:
             - containerPort: 15721

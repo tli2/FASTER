@@ -17,11 +17,12 @@ spec:
     spec:
       containers:
         - command:
-            - "EventProcessing/EventProcessing"
+            - "./EventProcessing"
           args:
             - "-t"
             - "dprfinder"
           image: tianyuli96/faster:latest
+          workingDir: "EventProcessing/"
           name: dprfinder
           ports:
             - containerPort: 15721

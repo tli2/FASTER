@@ -26,7 +26,7 @@ spec:
               done;
       containers:
         - command:
-            - "EventProcessing/EventProcessing"
+            - "./EventProcessing"
           args:
             - "-t"
             - "client"
@@ -35,6 +35,7 @@ spec:
             - "-o"
             - "{{.Values.experiment}}-{{.Values.workload}}-results-c{{.Values.checkpoint_interval}}{{.Values.tag}}"
           image: tianyuli96/faster:latest
+          workingDir: "EventProcessing/"
           name: client
           ports:
             - containerPort: 15721

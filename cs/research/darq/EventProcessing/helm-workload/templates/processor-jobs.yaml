@@ -32,7 +32,7 @@ spec:
               done;
       containers:
         - command:
-            - "EventProcessing/EventProcessing"
+            - "./EventProcessing"
           args:
             - "-t"
             - "{{ .name }}"
@@ -40,6 +40,7 @@ spec:
             - "-s"
             {{- end }}
           image: tianyuli96/faster:latest
+          workingDir: "EventProcessing/"
           name: {{ .name }}
           ports:
             - containerPort: 15721
