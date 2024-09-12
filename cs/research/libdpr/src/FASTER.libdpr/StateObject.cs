@@ -114,7 +114,7 @@ namespace FASTER.libdpr
                             so.versions.TryRemove(fromState.Version, out var deps);
                             var workerVersion = new WorkerVersion(so.options.Me, fromState.Version);
                             so.locallyPersistentVersion = fromState.Version;
-                            Console.WriteLine($"{fromState.Version} is locally persistent");
+                            // Console.WriteLine($"{fromState.Version} is locally persistent");
                             // TODO(Tianyu): Hack to early commit non-speculative work
                             if (deps.Count() == 1)
                             {
@@ -408,7 +408,7 @@ namespace FASTER.libdpr
                 while (uncommittedVersions.TryPeek(out var v) && v <= newCommitted)
                 {
                     if (v != newCommitted) PruneVersion(v);
-                    Console.WriteLine($"version {v} has committed");
+                    // Console.WriteLine($"version {v} has committed");
                     if (versionTcs.TryRemove(v, out var tcs))
                         tcs.SetResult();
                     uncommittedVersions.TryDequeue(out _);

@@ -95,8 +95,6 @@ public class CommitLogBackgroundService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         so.ConnectToCluster(out _);
-        // Use a large number to force participants to synchronize on their commit schedule on the first message
-        so.ForceCheckpoint(100000);
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
     }
 }
@@ -129,7 +127,6 @@ public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoord
 {
     private CommitCoordinatorSettings settings;
     private CommitLogBackgroundService backend;
-    private SemaphoreSlim rateLimiter = new(32, 32);
     private SimpleObjectPool<DprSession> sessionPool = new(() => new DprSession());
 
 
@@ -162,7 +159,6 @@ public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoord
 
     private async Task SendDecisionToWorkers(TwoPCMessage m)
     {
-        await rateLimiter.WaitAsync();
         var session = sessionPool.Checkout();
         _ = Task.Run(async () =>
         {
@@ -177,11 +173,9 @@ public class CommitCoordinatorServiceImpl : CommitCoordinatorService.CommitCoord
                             p.Intercept(new DprClientInterceptor(session)));
                     await client.SendMessageAsync(m);
                 }
-
             }
             finally
             {
-                rateLimiter.Release();
                 sessionPool.Return(session);
             }
 
