@@ -261,37 +261,8 @@ namespace FASTER.libdpr
 
                 versionScheme.TryAdvanceVersionWithCriticalSection((vOld, vNew) =>
                 {
-                    if (version > Version())
-                    {
-                        ActuallyRestore(newWorldLine, version, vOld, vNew);
-                    }
-                    else
-                    {
-                        for (var i = version + 1; i <= Version(); i++)
-                        {
-                            if (!versions.TryGetValue(i, out var deps)) continue;
-                            foreach (var dep in deps)
-                                if (dep.DprWorkerId != Me() &&
-                                    dep.Version > options.DprFinder.SafeVersion(dep.DprWorkerId))
-                                {
-                                    ActuallyRestore(newWorldLine, version, vOld, vNew);
-                                    return;
-                                }
-                        }
-
-                        // Clear any leftover state and signal complete
-                        versions.Clear();
-                        var newDeps = dependencySetPool.Checkout();
-                        if (vOld != 0)
-                            newDeps.Update(options.Me, vOld);
-                        var success = versions.TryAdd(vNew, newDeps);
-                        uncommittedVersions.Enqueue(vNew);
-                        versionTcs.TryAdd(vNew,
-                            new TaskCompletionSource());
-                        Debug.Assert(success);
-                        worldLine = newWorldLine;
-                    }
-                }, Math.Max(version, versionScheme.CurrentState().Version) + 1);
+                    ActuallyRestore(newWorldLine, version, vOld, vNew);
+                });
             }
         }
 
@@ -385,22 +356,25 @@ namespace FASTER.libdpr
                     });
                 }
 
-
-                if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
-                    BeginCheckpoint(largestRequestedCheckpointVersion);
-
                 if (lastRefreshMilli + options.RefreshPeriodMilli < now)
                 {
                     // A false return indicates that the DPR finder does not have a cut available, this is usually due to
                     // restart from crash, at which point we should resend the graph 
                     options.DprFinder.Refresh(options.Me, GetUnprunedVersions);
                     core.Utility.MonotonicUpdate(ref lastRefreshMilli, now, out _);
-                    if (worldLine != options.DprFinder.SystemWorldLine())
-                        BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
                 }
 
                 core.Utility.MonotonicUpdate(ref largestRequestedCheckpointVersion,
                     options.DprFinder.CurrentTime() / options.CheckpointPeriodMilli, out _);
+
+                if (worldLine != options.DprFinder.SystemWorldLine())
+                {
+                    BeginRestore(options.DprFinder.SystemWorldLine(), options.DprFinder.SafeVersion(options.Me));
+                    return;
+                }
+                
+                if (largestRequestedCheckpointVersion > versionScheme.CurrentState().Version)
+                    BeginCheckpoint(largestRequestedCheckpointVersion);
 
                 // Can prune dependency information of committed versions
                 var newCommitted = CommittedVersion();
