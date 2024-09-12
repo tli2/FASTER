@@ -21,7 +21,8 @@ spec:
           args:
             - "-t"
             - "dprfinder"
-          image: tianyuli96/faster:latest
+          image: tianyuli96/faster:stable
+          imagePullPolicy: IfNotPresent
           workingDir: "/app/EventProcessing/"
           name: dprfinder
           ports:
