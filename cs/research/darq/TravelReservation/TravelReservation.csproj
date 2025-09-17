@@ -12,7 +12,7 @@
 
     <ItemGroup>
         <PackageReference Include="CommandLineParser" Version="2.9.1" />
-        <PackageReference Include="Google.Protobuf" Version="3.25.0" />
+        <PackageReference Include="Google.Protobuf" Version="3.32.0" />
         <PackageReference Include="Grpc.AspNetCore" Version="2.59.0-pre1" />
         <PackageReference Include="Grpc.Net.Client" Version="2.59.0-pre1" />
         <PackageReference Include="Grpc.Tools" Version="2.59.0">
@@ -20,6 +20,9 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="MathNet.Numerics" Version="6.0.0-beta1" />
+        <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.54.0-preview.1" />
+        <PackageReference Include="Microsoft.Azure.Cosmos.Table" Version="2.0.0-preview" />
+        <PackageReference Include="Temporalio" Version="1.8.0" />
     </ItemGroup>
 
     <ItemGroup>

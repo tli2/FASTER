@@ -122,7 +122,7 @@ namespace FASTER.test
                         log.Enqueue(spanBatch);
                         break;
                     case EnqueueIteratorType.IEntry:
-                        log.Enqueue(ientry);
+                        log.Enqueue(ientry, null);
                         break;
                     default:
                         Assert.Fail("Unknown EnqueueIteratorType");

@@ -326,7 +326,7 @@ namespace FASTER.libdpr
             return this;
         }
 
-        public unsafe StepRequestBuilder AddSelfMessage(ILogEnqueueEntry message)
+        public unsafe StepRequestBuilder AddSelfMessage<T>(T message) where T : ILogEnqueueEntry
         {
             var messageLength = message.SerializedLength;
             while (request.serializationBuffer.Length - request.size <

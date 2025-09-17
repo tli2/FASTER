@@ -47,10 +47,36 @@ internal struct ActivityDarqEntry : ILogEnqueueEntry
     }
 }
 
-public class ReservationWorkflowStateMachine : IWorkflowStateMachine
+internal class DarqReservationWorkflow
 {
-    private long workflowId;
-    private List<ReservationRequest> toExecute = new();
+    internal long id;
+    internal List<ReservationRequest> toExecute = new();
+
+    internal DarqReservationWorkflow(ReadOnlySpan<byte> serializedWorkflow) : this(Encoding.UTF8.GetString(serializedWorkflow))
+    {
+    }
+    
+    internal DarqReservationWorkflow(string workflow)
+    {
+        var split = workflow.Split(',');
+        id = long.Parse(split[1]);
+        for (var i = 2; i < split.Length; i += 4)
+        {
+            toExecute.Add(new ReservationRequest
+            {
+                ReservationId = long.Parse(split[i]),
+                OfferingId = long.Parse(split[i + 1]),
+                CustomerId = long.Parse(split[i + 2]),
+                Count = int.Parse(split[i + 3])
+            });
+        }
+    }
+    
+}
+
+public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
+{
+    private DarqReservationWorkflow workflow;
     private TaskCompletionSource<bool> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private IDarqProcessorClientCapabilities capabilities;
     private SimpleObjectPool<StepRequest> stepRequestPool;
@@ -62,23 +88,11 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     private static SemaphoreSlim rateLimiter =
         new SemaphoreSlim(Environment.ProcessorCount * 4, Environment.ProcessorCount * 4);
 
-    public ReservationWorkflowStateMachine(ReadOnlySpan<byte> input, SimpleObjectPool<StepRequest> stepRequestPool,
+    public DarqReservationWorkflowStateMachine(ReadOnlySpan<byte> input, SimpleObjectPool<StepRequest> stepRequestPool,
         ConcurrentDictionary<int, GrpcChannel> connectionPool, IEnvironment environment, bool speculative,
         ILogger logger)
     {
-        var messageString = Encoding.UTF8.GetString(input);
-        var split = messageString.Split(',');
-        workflowId = long.Parse(split[1]);
-        for (var i = 2; i < split.Length; i += 4)
-        {
-            toExecute.Add(new ReservationRequest
-            {
-                ReservationId = long.Parse(split[i]),
-                OfferingId = long.Parse(split[i + 1]),
-                CustomerId = long.Parse(split[i + 2]),
-                Count = int.Parse(split[i + 3])
-            });
-        }
+        workflow = new DarqReservationWorkflow(input); 
 
         this.connectionPool = connectionPool;
         this.stepRequestPool = stepRequestPool;
@@ -107,7 +121,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
 
             requestBuilder.AddSelfMessage(new ActivityDarqEntry
             {
-                workflowId = workflowId,
+                workflowId = workflow.id,
                 type = ReservationWorkflowMessageTypes.RESERVATION_START,
                 index = 0
             });
@@ -134,9 +148,9 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
 
     private void MakeReservation(long lsn, int index)
     {
-        if (index == toExecute.Count)
+        if (index == workflow.toExecute.Count)
         {
-            Console.WriteLine($"Workflow with id {workflowId} completed successfully");
+            Console.WriteLine($"Workflow with id {workflow.id} completed successfully");
             // We are done and there are no more reservations to make
             tcs.SetResult(true);
             return;
@@ -156,14 +170,14 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                     : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
                 // Console.WriteLine($"Workflow with id {workflowId} is starting reservation number {index}");
-                var result = await client.MakeReservationAsync(toExecute[index]);
+                var result = await client.MakeReservationAsync(workflow.toExecute[index]);
                 // Console.WriteLine($"Workflow with id {workflowId} has completed reservation number {index}");
                 var stepRequest = stepRequestPool.Checkout();
                 var requestBuilder = new StepRequestBuilder(stepRequest);
                 requestBuilder.MarkMessageConsumed(lsn);
                 requestBuilder.AddSelfMessage(new ActivityDarqEntry
                 {
-                    workflowId = workflowId,
+                    workflowId = workflow.id,
                     type = result.Ok
                         ? ReservationWorkflowMessageTypes.RESERVATION_START
                         : ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
@@ -185,7 +199,7 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         if (index == -1)
         {
-            Console.WriteLine($"Workflow with id {workflowId} completed with rollback");
+            Console.WriteLine($"Workflow with id {workflow.id} completed with rollback");
             // We are done and there are no more reservations to make
             tcs.SetResult(false);
             return;
@@ -204,15 +218,15 @@ public class ReservationWorkflowStateMachine : IWorkflowStateMachine
                         channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
                     : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
-                Console.WriteLine($"Workflow with id {workflowId} is cancelling reservation number {index}");
-                await client.CancelReservationAsync(toExecute[index]);
-                Console.WriteLine($"Workflow with id {workflowId} has cancelled reservation number {index}");
+                Console.WriteLine($"Workflow with id {workflow.id} is cancelling reservation number {index}");
+                await client.CancelReservationAsync(workflow.toExecute[index]);
+                Console.WriteLine($"Workflow with id {workflow.id} has cancelled reservation number {index}");
                 var stepRequest = stepRequestPool.Checkout();
                 var requestBuilder = new StepRequestBuilder(stepRequest);
                 requestBuilder.MarkMessageConsumed(lsn);
                 requestBuilder.AddSelfMessage(new ActivityDarqEntry
                 {
-                    workflowId = workflowId,
+                    workflowId = workflow.id,
                     type = ReservationWorkflowMessageTypes.RESERVATION_ROLLBACK,
                     index = index - 1
                 });

@@ -191,7 +191,7 @@ public class Program
         var stepRequestPool = new SimpleObjectPool<StepRequest>(() => new StepRequest(), maxObjects: 1024);
 
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, (input, logger) => new ReservationWorkflowStateMachine(input, stepRequestPool, connectionPool, environment, options.Speculative, logger) } };
+            { { 0, (input, logger) => new DarqReservationWorkflowStateMachine(input, stepRequestPool, connectionPool, environment, options.Speculative, logger) } };
         builder.Services.AddSingleton(new OrchestartorBackgroundProcessingServiceSettings
         {
             workflowFactories = workflowFactories,
