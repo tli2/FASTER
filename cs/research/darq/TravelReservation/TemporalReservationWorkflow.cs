@@ -52,10 +52,8 @@ public class TemporalReservationWorkflow
 {
     public async Task<bool> RunAsync(string workflowContent, CosmosClient client, IEnvironment environment)
     {
-        // 1. Parse the input string into a list of reservation requests
         var toExecute = new List<ReservationRequest>();
         var split = workflowContent.Split(',');
-        // Assuming format is "somePrefix,workflowId,resId,offId,custId,count,resId,offId,custId,count..."
         for (var i = 2; i < split.Length; i += 4)
         {
             toExecute.Add(new ReservationRequest
@@ -67,17 +65,13 @@ public class TemporalReservationWorkflow
             });
         }
 
-        // 2. Set up a list to hold compensation actions (cancellations)
         var compensations = new List<Func<Task>>();
-        
-        // Define options for our main activities, including retries
         var activityOptions = new ActivityOptions
         {
             StartToCloseTimeout = TimeSpan.FromSeconds(30),
             RetryPolicy = new()
             {
-                // We've made the activity safe for retries with ETags, so we can enable them.
-                MaximumAttempts = 3,
+                MaximumAttempts = 10,
                 // Do not retry on ApplicationFailureException that we throw for business logic errors.
                 NonRetryableErrorTypes = new[] { "ApplicationFailureException" } 
             }
@@ -130,12 +124,10 @@ public class TemporalReservationActivities
     {
         try
         {
-            // 1. Read the offering and capture its ETag
             ItemResponse<OfferingDocument> offeringResponse = await container.ReadItemAsync<OfferingDocument>(
                 id: $"offering-{request.OfferingId}",
                 partitionKey: new PartitionKey(request.OfferingId));
             if (offeringResponse.Resource.RemainingCount < request.Count) return false;
-
 
             var reservationDoc = new ReservationDocument
             {

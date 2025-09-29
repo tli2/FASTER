@@ -1,0 +1,229 @@
+syntax = "proto3";
+
+package marketplace;
+
+option csharp_namespace = "OnlineMarketplace.Proto";
+
+// Enums - matching C# enum values exactly
+enum CartStatus {
+  OPEN = 0;
+  CHECKOUT_SENT = 1;
+  PRODUCT_DIVERGENCE = 2;
+}
+
+enum ItemStatus {
+  DELETED = 0;
+  OUT_OF_STOCK = 1;
+  PRICE_DIVERGENCE = 2;
+  IN_STOCK = 3;
+}
+
+// Entity Messages
+message Product {
+  int32 seller_id = 1;
+  int32 product_id = 2;
+  string name = 3;
+  string sku = 4;
+  string category = 5;
+  string description = 6;
+  float price = 7;
+  float freight_value = 8;
+  string status = 9;
+  string version = 10;
+}
+
+message Customer {
+  int32 id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string address = 4;
+  string complement = 5;
+  string birth_date = 6;
+  string zip_code = 7;
+  string city = 8;
+  string state = 9;
+  string card_number = 10;
+  string card_security_number = 11;
+  string card_expiration = 12;
+  string card_holder_name = 13;
+  string card_type = 14;
+  int32 success_payment_count = 15;
+  int32 failed_payment_count = 16;
+  int32 delivery_count = 17;
+  string data = 18;
+}
+
+message Seller {
+  int32 id = 1;
+  string name = 2;
+  string company_name = 3;
+  string email = 4;
+  string phone = 5;
+  string mobile_phone = 6;
+  string cpf = 7;
+  string cnpj = 8;
+  string address = 9;
+  string complement = 10;
+  string city = 11;
+  string state = 12;
+  string zip_code = 13;
+}
+
+message CartItem {
+  int32 seller_id = 1;
+  int32 product_id = 2;
+  string product_name = 3;
+  float unit_price = 4;
+  float freight_value = 5;
+  int32 quantity = 6;
+  float voucher = 7;
+  string version = 8;
+}
+
+message Cart {
+  int32 customer_id = 1;
+  CartStatus status = 2;
+  repeated CartItem items = 3;
+  int32 instance_id = 4;
+  repeated ProductStatus divergencies = 5;
+}
+
+message ProductStatus {
+  int32 id = 1;
+  ItemStatus status = 2;
+  float unit_price = 3;
+  float old_unit_price = 4;
+  int32 qty_available = 5;
+}
+
+message StockItem {
+  int32 seller_id = 1;
+  int32 product_id = 2;
+  int32 qty_available = 3;
+  int32 qty_reserved = 4;
+  int32 order_count = 5;
+  int32 ytd_order_count = 6;
+  string data = 7;
+}
+
+message CustomerCheckoutRequest {
+  int32 customer_id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string city = 4;
+  string address = 5;
+  string complement = 6;
+  string state = 7;
+  string zip_code = 8;
+  string payment_type = 9;
+  string card_number = 10;
+  string card_holder_name = 11;
+  string card_expiration = 12;
+  string card_security_number = 13;
+  string card_type = 14;
+  int32 installments = 15;
+  string instance_id = 16;
+}
+
+message PriceUpdateRequest {
+  int32 seller_id = 1;
+  int32 product_id = 2;
+  float price = 3;
+  string version = 4;
+  string instance_id = 5;
+}
+
+message SealCartRequest {
+  int32 customer_id = 1;
+}
+
+message GetDashboardRequest {
+  int32 seller_id = 1;
+}
+
+message UpdateShipmentRequest {
+  string transaction_id = 1;
+  string status = 2;
+}
+
+// Response Messages
+message AddToCartResponse {
+  bool success = 1;
+  string message = 2;
+  repeated ProductStatus product_statuses = 3;
+}
+
+message CheckoutResponse {
+  bool success = 1;
+  string transaction_id = 2;
+  string message = 3;
+  repeated ProductStatus divergencies = 4;
+}
+
+message DashboardResponse {
+  int32 seller_id = 1;
+  repeated Product products = 2;
+  int32 total_orders = 3;
+  float total_revenue = 4;
+}
+
+message CreateEntityResponse {
+  bool success = 1;
+  string message = 2;
+  int32 id = 3;
+}
+
+message UpdateResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message EmptyResponse {
+}
+
+// Service Definitions
+service CartService {
+  rpc AddToCart(CartItem) returns (AddToCartResponse);
+  rpc Checkout(CustomerCheckoutRequest) returns (CheckoutResponse);
+  rpc SealCart(SealCartRequest) returns (EmptyResponse);
+}
+
+service CustomerService {
+  rpc CreateCustomer(Customer) returns (CreateEntityResponse);
+  rpc GetCustomer(GetCustomerRequest) returns (Customer);
+}
+
+service ProductService {
+  rpc CreateProduct(Product) returns (CreateEntityResponse);
+  rpc UpdatePrice(PriceUpdateRequest) returns (UpdateResponse);
+  rpc ReplaceProduct(Product) returns (UpdateResponse);
+  rpc GetProduct(GetProductRequest) returns (Product);
+}
+
+service SellerService {
+  rpc CreateSeller(Seller) returns (CreateEntityResponse);
+  rpc GetDashboard(GetDashboardRequest) returns (DashboardResponse);
+}
+
+service StockService {
+  rpc CreateStockItem(StockItem) returns (CreateEntityResponse);
+  rpc GetStock(GetStockRequest) returns (StockItem);
+}
+
+service ShipmentService {
+  rpc UpdateShipment(UpdateShipmentRequest) returns (UpdateResponse);
+}
+
+// Additional request messages for get operations
+message GetCustomerRequest {
+  int32 customer_id = 1;
+}
+
+message GetProductRequest {
+  int32 product_id = 1;
+}
+
+message GetStockRequest {
+  int32 seller_id = 1;
+  int32 product_id = 2;
+}
