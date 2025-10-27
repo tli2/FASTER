@@ -1,0 +1,452 @@
+using System.Collections.Concurrent;
+using System.Collections.Concurrent.Extended;
+using System.Diagnostics;
+using System.Transactions;
+using FASTER.common;
+using FASTER.core;
+using FASTER.darq;
+using FASTER.libdpr;
+using Grpc.Core;
+using Microsoft.Extensions.Hosting;
+using protobuf;
+
+namespace TwoPhaseCommit;
+
+public class TransactionContext
+{
+    private long txnId = -1;
+    private List<RowRecord> sharedLocks = new(), exclusiveLocks = new();
+    private List<Action> undoActions = new();
+    
+    public TransactionContext Reset(long transactionId)
+    {
+        sharedLocks.Clear();
+        exclusiveLocks.Clear();
+        undoActions.Clear();
+        this.txnId = transactionId;
+        return this;
+    }
+    
+    public long Id() => txnId;
+    
+    public bool ReadOnly() => undoActions.Count == 0;
+
+    // TODO(Tianyu): use a special wrapped implementation of enqueue to properly drop epoch protection only when we need to wait on the lock
+    public async Task<bool> TryAccessRead(RowRecord record)
+    {
+        if (await record.TryAcquireShared(txnId))
+        {
+            sharedLocks.Add(record);
+            return true;
+        }
+        return false;
+    }
+    
+    public async Task<bool> TryAccessWrite(RowRecord record)
+    {
+        if (await record.TryAcquireExclusive(txnId))
+        {
+            exclusiveLocks.Add(record);
+            return true;
+        }
+        return false;
+    }
+    
+    public void AddUndoAction(Action action)
+    {
+        undoActions.Add(action);
+    }
+    
+    public void Undo()
+    {
+        foreach (var u in undoActions) u();
+
+    }
+
+    public void ReleaseLocks()
+    {
+        foreach (var l in sharedLocks) l.ReleaseShared(txnId);
+        foreach (var l in exclusiveLocks) l.ReleaseExclusive(txnId);
+    }
+}
+
+public class TpccShard : StateObject
+{
+    private FasterLogSettings settings;
+    public FasterLog log;
+    public LongValueAttachment timestamp = new();
+    
+    // Item table is replicated across all shards
+    public ConcurrentDictionary<int, Item> items = new();
+    public ConcurrentDictionary<byte, Warehouse> warehouses;
+    public ConcurrentDictionary<DistrictKey, District> districts = new();
+    public ConcurrentDictionary<CustomerKey, Customer> customers = new();
+    public ConcurrentSortedDictionary<OrderKey, Order> orders = new();
+    public ConcurrentSortedDictionary<OrderLineKey, OrderLine> orderLines = new();
+    public ConcurrentDictionary<StockKey, Stock> stocks = new();
+    
+    public SimpleObjectPool<TransactionContext> objectPool = new(() => new TransactionContext());
+    public ConcurrentDictionary<long, TransactionContext> activeTransactions = new();
+    public ConcurrentDictionary<long, ConcurrentQueue<TransactionContext>> recentlyCommittedTransactions = new();
+
+    public TpccShard(FasterLogSettings settings, IVersionScheme versionScheme, DprWorkerOptions options) : base(versionScheme, options)
+    {
+        this.settings = settings;
+        log = new FasterLog(settings);
+        AddAttachment(timestamp);
+    }
+
+    public TransactionContext StartTransaction()
+    {
+        // Assuming we have smaller than 255 warehouses, guarantees unique txnId across warehouses and that transactions from different warehouses can interleave in order
+        var txnId = Interlocked.Increment(ref timestamp.value) << 56 | Me().guid;
+        var txn = objectPool.Checkout().Reset(txnId);
+        activeTransactions[txnId] = txn;
+        return txn;
+    }
+
+    // TODO(Tianyu): use a special wrapped implementation of enqueue to properly drop epoch protection only when we need to wait on the enqueue
+    public async Task Commit(TransactionContext txn)
+    {
+        if (!txn.ReadOnly())
+        {
+            await log.EnqueueAsync(LogRecords.CreateCommitRecord(txn.Id()));
+            recentlyCommittedTransactions.GetOrAdd(Version(), _ => new ConcurrentQueue<TransactionContext>()).Enqueue(txn);;
+        }
+        txn.ReleaseLocks();
+        activeTransactions.TryRemove(txn.Id(), out _);
+    }
+    
+    public async Task Abort(TransactionContext txn, bool yieldRecord = true)
+    {
+        if (!txn.ReadOnly() && yieldRecord)
+            await log.EnqueueAsync(LogRecords.CreateAbortRecord(txn.Id()));
+        txn.Undo();
+        txn.ReleaseLocks();
+        activeTransactions.TryRemove(txn.Id(), out _);
+        objectPool.Return(txn);
+    }
+
+    public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
+    {
+        log.CommitStrongly(out _, out _, false, metadata.ToArray(), version, onPersist);
+    }
+
+    private unsafe void ReplayLog()
+    {
+        var it = log.Scan(0, log.TailAddress);
+        while (it.UnsafeGetNext(out var b, out _, out _, out _))
+        {
+            LogRecords.ApplyLogRecord(b, this);
+            it.UnsafeRelease();
+        }
+        // Any uncommitted active transaction at this point must have been lost, so we can abort
+        foreach (var txn in activeTransactions.Values)
+        {
+            Abort(txn, false);
+        }
+        activeTransactions.Clear();
+    }
+
+    public override void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
+    {
+        log = new FasterLog(settings);
+        log.Recover(version);
+        metadata = log.RecoveredCookie;
+        // Use timestamp field to determine whether we are rolling back or recovering from a crash
+        if (timestamp.value == 0)
+        {
+            ReplayLog();
+        }
+        else
+        {
+            // Can rollback by simply undoing all the active transactions and speculatively committed transactions
+            foreach (var txn in activeTransactions.Values)
+                Abort(txn, false);
+            
+            foreach (var e in recentlyCommittedTransactions)
+            {
+                Debug.Assert(e.Key > version);
+                while (e.Value.TryDequeue(out var txn))
+                {
+                    txn.Undo();
+                    objectPool.Return(txn);
+                }
+            }
+            recentlyCommittedTransactions.Clear();
+        }
+    }
+
+    public override void PruneVersion(long version)
+    {
+        if (recentlyCommittedTransactions.TryRemove(version, out var txns))
+            while (txns.TryDequeue(out var txn)) objectPool.Return(txn);
+        settings.LogCommitManager.RemoveCommit(version);
+    }
+
+    public override IEnumerable<Memory<byte>> GetUnprunedVersions()
+    {
+        var commits = settings.LogCommitManager.ListCommits().ToList();
+        return commits.Select(commitNum =>
+        {
+            // TODO(Tianyu): hacky
+            var newLog = new FasterLog(settings);
+            newLog.Recover(commitNum);
+            var commitCookie = newLog.RecoveredCookie;
+            newLog.Dispose();
+            return new Memory<byte>(commitCookie);
+        });
+        
+    }
+
+    public override void Dispose()
+    {
+        log.Dispose();
+    }
+}
+
+public class TpccShardBackgroundService : BackgroundService
+{
+    public TpccShard so;
+
+    public TpccShardBackgroundService(TpccShard so)
+    {
+        this.so = so;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        so.ConnectToCluster(out _);
+        await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+    }
+}
+
+public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
+{
+    private TpccShardBackgroundService bg;
+    
+    public TpccShardServiceImpl(TpccShardBackgroundService bg)
+    {
+        this.bg = bg;
+    }
+    
+    public override async Task<NewOrderResponse> NewOrder(NewOrderRequest request, ServerCallContext context)
+    {
+        var txn = bg.so.StartTransaction();
+        var w = bg.so.warehouses[(byte) request.WId];
+        if (!await txn.TryAccessRead(w))
+        {
+            await bg.so.Abort(txn);
+            return new NewOrderResponse
+            {
+                Success = false
+            };
+        }
+        
+        var c = bg.so.customers[new CustomerKey((byte) request.WId, (byte) request.DId, request.CId)];
+        if (!await txn.TryAccessRead(c))
+        {
+            // No need for an abort record because the transaction has not generated any log records
+            await bg.so.Abort(txn);
+            return new NewOrderResponse
+            {
+                Success = false
+            };
+        }
+
+        var d = bg.so.districts[new DistrictKey((byte) request.WId, (byte) request.DId)];
+        if (!await txn.TryAccessWrite(d))
+        {
+            // No need for an abort record because the transaction has not generated any log records
+            await bg.so.Abort(txn);
+            return new NewOrderResponse
+            {
+                Success = false
+            };
+        }
+
+        await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateNextOrderIdRecord(txn.Id(), (byte) request.WId, (byte) request.DId));
+        var oId = d.dNextOrderId++;
+        txn.AddUndoAction(() => d.dNextOrderId = oId);
+
+        var newOrderKey = new OrderKey((byte)request.WId, (byte)request.DId, request.CId, oId);
+        var newOrder = new Order
+        {
+            oId = oId,
+            oDId = (byte)request.DId,
+            oWId = (byte)request.WId,
+            oCId = request.CId,
+            oEntryD = DateTime.Now,
+            oCarrierId = 0,
+            oOLCnt = request.Items.Count,
+            oAllLocal = 0,
+        };
+        await bg.so.log.EnqueueAsync(LogRecords.CreateInsertOrderRecord(txn.Id(), newOrder));
+        txn.AddUndoAction(() => bg.so.orders.TryRemove(newOrderKey));
+        bg.so.orders.TryAdd(new OrderKey((byte) request.WId, (byte) request.DId, request.CId, oId), newOrder);;
+
+        for (var i = 0; i < request.Items.Count; i++)
+        {
+            var ol = request.Items[i];
+            // Read-only table, no concurrency control required
+            var item = bg.so.items[ol.ItemId];
+            var s = bg.so.stocks[new StockKey((byte)ol.WId, ol.ItemId)];
+            if (!await txn.TryAccessWrite(s))
+            {
+                await bg.so.Abort(txn);
+                return new NewOrderResponse
+                {
+                    Success = false
+                };
+            }
+            var oldQuantity = s.sQuantity;
+            txn.AddUndoAction(() => s.sQuantity = oldQuantity);
+            var newQuantity = s.sQuantity > ol.Quantity + 10 ? s.sQuantity - ol.Quantity : s.sQuantity - ol.Quantity + 91;
+            await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateStockRecord(txn.Id(), (byte) ol.WId, ol.ItemId, newQuantity));
+            s.sQuantity = newQuantity;
+            
+            var olKey = new OrderLineKey((byte) ol.WId, (byte) request.DId, oId, (byte) i);
+            var newOrderLine = new OrderLine
+            {
+                olOId = oId,
+                olDId = (byte) request.DId,
+                olWId = (byte) ol.WId,
+                olNumber = (byte) i,
+                olIId = ol.ItemId,
+                olSupplyWId = ol.WId,
+                olDeliveryD = default,
+                olQuantity = ol.Quantity,
+                olAmount = ol.Quantity * item.iPrice
+            };
+            await bg.so.log.EnqueueAsync(LogRecords.CreateInsertOrderLineRecord(txn.Id(), newOrderLine));
+            txn.AddUndoAction(() => bg.so.orderLines.TryRemove(olKey));
+            bg.so.orderLines.TryAdd(olKey, newOrderLine);
+        }
+
+        await bg.so.Commit(txn);
+        return new NewOrderResponse
+        {
+            Success = true
+        };
+    }
+
+    public override async Task<PaymentResponse> Payment(PaymentRequest request, ServerCallContext context)
+    {
+        var txn = bg.so.StartTransaction();
+        
+        var w = bg.so.warehouses[(byte) request.WId];
+        if (!await txn.TryAccessWrite(w))
+        {
+            await bg.so.Abort(txn);
+            return new PaymentResponse
+            {
+                Success = false
+            };
+        }
+        await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateWarehouseYtdRecord(txn.Id(), (byte) request.WId, request.Amount));
+        var wYtd = w.wYtd;
+        txn.AddUndoAction(() => w.wYtd = wYtd);
+        w.wYtd += request.Amount;
+        
+        var d = bg.so.districts[new DistrictKey((byte) request.WId, (byte) request.DId)];;
+        if (!await txn.TryAccessWrite(d))
+        {
+            await bg.so.Abort(txn);
+            return new PaymentResponse
+            {
+                Success = false
+            };
+        }
+        await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateDistrictYtdRecord(txn.Id(), (byte) request.WId, (byte) request.DId, request.Amount));
+        var dYtd = d.dYtd;
+        txn.AddUndoAction(() => d.dYtd = dYtd);
+        d.dYtd += request.Amount;
+        
+        var c = bg.so.customers[new CustomerKey((byte) request.WId, (byte) request.DId, request.CId)];
+        if (!await txn.TryAccessWrite(c))
+        {
+            await bg.so.Abort(txn);
+            return new PaymentResponse
+            {
+                Success = false
+            };
+        }
+        await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateCustomerRecord(txn.Id(), (byte) request.WId, (byte) request.DId, request.CId, request.Amount));
+        var oldBalance = c.cBalance;
+        var oldYtdPayment = c.cYtdPayment;
+        var oldPaymentCnt = c.cPaymentCnt;
+        txn.AddUndoAction(() =>
+        {
+            c.cBalance = oldBalance;
+            c.cYtdPayment = oldYtdPayment;
+            c.cPaymentCnt = oldPaymentCnt;
+        });
+        c.cBalance -= request.Amount;
+        c.cYtdPayment += request.Amount;
+        c.cPaymentCnt++;
+        
+        // Skip the insert into history because it's never read in the workload
+        
+        await bg.so.Commit(txn);
+        return new PaymentResponse
+        {
+            Success = true
+        };
+    }
+
+    public override async Task<OrderStatusResponse> OrderStatus(OrderStatusRequest request, ServerCallContext context)
+    {
+        var txn = bg.so.StartTransaction();
+        
+        var scanKey = new OrderKey((byte)request.WId, (byte)request.DId, request.CId, int.MaxValue);
+        var max = bg.so.orders.StartingWith(scanKey, true).First().Value;
+        if (!await txn.TryAccessRead(max))
+        {
+            await bg.so.Abort(txn);
+            return new OrderStatusResponse
+            {
+                Success = false
+            };
+        }
+        var id = max.oId;
+        
+        var response = new OrderStatusResponse
+        {
+            Success = false,
+            CId = max.oCId,
+            OId = max.oId,
+            WId = max.oWId,
+        };
+        
+        foreach (var v in bg.so.orderLines.Range(
+                     new OrderLineKey((byte)request.WId, (byte)request.DId, id, 0),
+                     new OrderLineKey((byte)request.WId, (byte)request.DId, id, 16)))
+        {
+            if (!await txn.TryAccessRead(v.Value))
+            {
+                await bg.so.Abort(txn);
+                return response;
+            }
+            response.OrderLines.Add(new protobuf.OrderLine
+            {
+                ItemId = v.Value.olIId,
+                WId = v.Value.olWId,
+                Quantity = v.Value.olQuantity
+            });
+        }
+
+        await bg.so.Commit(txn);
+        response.Success = true;
+        return response;
+    }
+
+    public override Task<DeliveryResponse> Delivery(DeliveryRequest request, ServerCallContext context)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override Task<StockLevelResponse> StockLevel(StockLevelRequest request, ServerCallContext context)
+    {
+        throw new NotImplementedException();   
+    }
+}
