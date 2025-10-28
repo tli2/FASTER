@@ -32,24 +32,18 @@ public class TransactionContext
     public bool ReadOnly() => undoActions.Count == 0;
 
     // TODO(Tianyu): use a special wrapped implementation of enqueue to properly drop epoch protection only when we need to wait on the lock
-    public async Task<bool> TryAccessRead(RowRecord record)
+    public async ValueTask<bool> TryAccessRead(RowRecord record)
     {
-        if (await record.TryAcquireShared(txnId))
-        {
-            sharedLocks.Add(record);
-            return true;
-        }
-        return false;
+        if (!await record.TryAcquireShared(txnId)) return false;
+        sharedLocks.Add(record);
+        return true;
     }
     
-    public async Task<bool> TryAccessWrite(RowRecord record)
+    public async ValueTask<bool> TryAccessWrite(RowRecord record)
     {
-        if (await record.TryAcquireExclusive(txnId))
-        {
-            exclusiveLocks.Add(record);
-            return true;
-        }
-        return false;
+        if (!await record.TryAcquireExclusive(txnId)) return false;
+        exclusiveLocks.Add(record);
+        return true;
     }
     
     public void AddUndoAction(Action action)
@@ -106,7 +100,7 @@ public class TpccShard : StateObject
     }
 
     // TODO(Tianyu): use a special wrapped implementation of enqueue to properly drop epoch protection only when we need to wait on the enqueue
-    public async Task Commit(TransactionContext txn)
+    public async ValueTask Commit(TransactionContext txn)
     {
         if (!txn.ReadOnly())
         {
@@ -117,7 +111,7 @@ public class TpccShard : StateObject
         activeTransactions.TryRemove(txn.Id(), out _);
     }
     
-    public async Task Abort(TransactionContext txn, bool yieldRecord = true)
+    public async ValueTask Abort(TransactionContext txn, bool yieldRecord = true)
     {
         if (!txn.ReadOnly() && yieldRecord)
             await log.EnqueueAsync(LogRecords.CreateAbortRecord(txn.Id()));
@@ -229,14 +223,76 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
     {
         this.bg = bg;
     }
+
+    private async ValueTask AbortWrapper(TransactionContext txn)
+    {
+        var v = bg.so.Abort(txn);
+        if (v.IsCompleted) return;
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        await v;
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+    }
+    
+    private async ValueTask CommitWrapper(TransactionContext txn)
+    {
+        var v = bg.so.Commit(txn);
+        if (v.IsCompleted) return;
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        await v;
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+    }
+
+
+    private async ValueTask<bool> TryAccessWriteWrapper(TransactionContext txn, RowRecord record)
+    {
+        var v = txn.TryAccessWrite(record);
+        if (v.IsCompleted)
+        {
+            if (!v.Result)
+                await AbortWrapper(txn);
+            return v.Result;
+        }
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        var result = await v;
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+        return result;
+    }
+    private async ValueTask<bool> TryAccessReadWrapper(TransactionContext txn, RowRecord record)
+    {
+        var v = txn.TryAccessRead(record);
+        if (v.IsCompleted)
+        {
+            if (!v.Result)
+                await AbortWrapper(txn);
+            return v.Result;
+        }
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        var result = await v;
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+        return result;
+    }
+
+    private async ValueTask EnqueueWrapper<T>(ILogEnqueueEntry e)
+    {       
+        var v = bg.so.log.EnqueueAsync(e);
+        if (v.IsCompleted) return;
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        await v;
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+    }
+    
     
     public override async Task<NewOrderResponse> NewOrder(NewOrderRequest request, ServerCallContext context)
     {
         var txn = bg.so.StartTransaction();
         var w = bg.so.warehouses[(byte) request.WId];
-        if (!await txn.TryAccessRead(w))
+        if (!await TryAccessReadWrapper(txn, w))
         {
-            await bg.so.Abort(txn);
             return new NewOrderResponse
             {
                 Success = false
@@ -244,10 +300,8 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         }
         
         var c = bg.so.customers[new CustomerKey((byte) request.WId, (byte) request.DId, request.CId)];
-        if (!await txn.TryAccessRead(c))
+        if (!await TryAccessReadWrapper(txn, c))
         {
-            // No need for an abort record because the transaction has not generated any log records
-            await bg.so.Abort(txn);
             return new NewOrderResponse
             {
                 Success = false
@@ -255,10 +309,8 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         }
 
         var d = bg.so.districts[new DistrictKey((byte) request.WId, (byte) request.DId)];
-        if (!await txn.TryAccessWrite(d))
+        if (!await TryAccessWriteWrapper(txn, d))
         {
-            // No need for an abort record because the transaction has not generated any log records
-            await bg.so.Abort(txn);
             return new NewOrderResponse
             {
                 Success = false
@@ -281,7 +333,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             oOLCnt = request.Items.Count,
             oAllLocal = 0,
         };
-        await bg.so.log.EnqueueAsync(LogRecords.CreateInsertOrderRecord(txn.Id(), newOrder));
+        await EnqueueWrapper<InsertOrderLogRecord>(LogRecords.CreateInsertOrderRecord(txn.Id(), newOrder));
         txn.AddUndoAction(() => bg.so.orders.TryRemove(newOrderKey));
         bg.so.orders.TryAdd(new OrderKey((byte) request.WId, (byte) request.DId, request.CId, oId), newOrder);;
 
@@ -291,9 +343,8 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             // Read-only table, no concurrency control required
             var item = bg.so.items[ol.ItemId];
             var s = bg.so.stocks[new StockKey((byte)ol.WId, ol.ItemId)];
-            if (!await txn.TryAccessWrite(s))
+            if (!await TryAccessWriteWrapper(txn, s))
             {
-                await bg.so.Abort(txn);
                 return new NewOrderResponse
                 {
                     Success = false
@@ -302,7 +353,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             var oldQuantity = s.sQuantity;
             txn.AddUndoAction(() => s.sQuantity = oldQuantity);
             var newQuantity = s.sQuantity > ol.Quantity + 10 ? s.sQuantity - ol.Quantity : s.sQuantity - ol.Quantity + 91;
-            await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateStockRecord(txn.Id(), (byte) ol.WId, ol.ItemId, newQuantity));
+            await EnqueueWrapper<UpdateStockLogRecord>(LogRecords.CreateUpdateStockRecord(txn.Id(), (byte) ol.WId, ol.ItemId, newQuantity));
             s.sQuantity = newQuantity;
             
             var olKey = new OrderLineKey((byte) ol.WId, (byte) request.DId, oId, (byte) i);
@@ -318,12 +369,13 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
                 olQuantity = ol.Quantity,
                 olAmount = ol.Quantity * item.iPrice
             };
-            await bg.so.log.EnqueueAsync(LogRecords.CreateInsertOrderLineRecord(txn.Id(), newOrderLine));
+            await EnqueueWrapper<InsertOrderLineLogRecord>(
+                LogRecords.CreateInsertOrderLineRecord(txn.Id(), newOrderLine));
             txn.AddUndoAction(() => bg.so.orderLines.TryRemove(olKey));
             bg.so.orderLines.TryAdd(olKey, newOrderLine);
         }
 
-        await bg.so.Commit(txn);
+        await CommitWrapper(txn); 
         return new NewOrderResponse
         {
             Success = true
@@ -335,43 +387,46 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         var txn = bg.so.StartTransaction();
         
         var w = bg.so.warehouses[(byte) request.WId];
-        if (!await txn.TryAccessWrite(w))
+        if (!await TryAccessWriteWrapper(txn, w))
         {
-            await bg.so.Abort(txn);
             return new PaymentResponse
             {
                 Success = false
             };
         }
-        await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateWarehouseYtdRecord(txn.Id(), (byte) request.WId, request.Amount));
+
+        await EnqueueWrapper<UpdateWarehouseYtdLogRecord>(
+            LogRecords.CreateUpdateWarehouseYtdRecord(txn.Id(), (byte)request.WId, request.Amount));
         var wYtd = w.wYtd;
         txn.AddUndoAction(() => w.wYtd = wYtd);
         w.wYtd += request.Amount;
         
         var d = bg.so.districts[new DistrictKey((byte) request.WId, (byte) request.DId)];;
-        if (!await txn.TryAccessWrite(d))
+        if (!await TryAccessWriteWrapper(txn, d))
         {
-            await bg.so.Abort(txn);
             return new PaymentResponse
             {
                 Success = false
             };
         }
-        await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateDistrictYtdRecord(txn.Id(), (byte) request.WId, (byte) request.DId, request.Amount));
+
+        await EnqueueWrapper<UpdateDistrictYtdLogRecord>(
+            LogRecords.CreateUpdateDistrictYtdRecord(txn.Id(), (byte)request.WId, (byte)request.DId, request.Amount));
         var dYtd = d.dYtd;
         txn.AddUndoAction(() => d.dYtd = dYtd);
         d.dYtd += request.Amount;
         
         var c = bg.so.customers[new CustomerKey((byte) request.WId, (byte) request.DId, request.CId)];
-        if (!await txn.TryAccessWrite(c))
+        if (!await TryAccessWriteWrapper(txn, c))
         {
-            await bg.so.Abort(txn);
             return new PaymentResponse
             {
                 Success = false
             };
         }
-        await bg.so.log.EnqueueAsync(LogRecords.CreateUpdateCustomerRecord(txn.Id(), (byte) request.WId, (byte) request.DId, request.CId, request.Amount));
+
+        await EnqueueWrapper<UpdateCustomerLogRecord>(LogRecords.CreateUpdateCustomerRecord(txn.Id(), (byte)request.WId,
+            (byte)request.DId, request.CId, request.Amount));
         var oldBalance = c.cBalance;
         var oldYtdPayment = c.cYtdPayment;
         var oldPaymentCnt = c.cPaymentCnt;
@@ -387,7 +442,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         
         // Skip the insert into history because it's never read in the workload
         
-        await bg.so.Commit(txn);
+        await CommitWrapper(txn);
         return new PaymentResponse
         {
             Success = true
@@ -400,9 +455,8 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         
         var scanKey = new OrderKey((byte)request.WId, (byte)request.DId, request.CId, int.MaxValue);
         var max = bg.so.orders.StartingWith(scanKey, true).First().Value;
-        if (!await txn.TryAccessRead(max))
+        if (!await TryAccessReadWrapper(txn, max))
         {
-            await bg.so.Abort(txn);
             return new OrderStatusResponse
             {
                 Success = false
@@ -422,9 +476,8 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
                      new OrderLineKey((byte)request.WId, (byte)request.DId, id, 0),
                      new OrderLineKey((byte)request.WId, (byte)request.DId, id, 16)))
         {
-            if (!await txn.TryAccessRead(v.Value))
+            if (!await TryAccessReadWrapper(txn, v.Value))
             {
-                await bg.so.Abort(txn);
                 return response;
             }
             response.OrderLines.Add(new protobuf.OrderLine
@@ -435,7 +488,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             });
         }
 
-        await bg.so.Commit(txn);
+        await CommitWrapper(txn);
         response.Success = true;
         return response;
     }
