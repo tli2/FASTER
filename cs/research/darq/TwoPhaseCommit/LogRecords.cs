@@ -128,12 +128,12 @@ public struct InsertOrderLineLogRecord : ILogRecord
     [FieldOffset(1)] public byte olDId;
     [FieldOffset(2)] public byte olWId;
     [FieldOffset(3)] public byte olNumber;
-    [FieldOffset(4)] public int olOId;
+    [FieldOffset(4)] public byte olSupplyWId;
     [FieldOffset(8)] public long transactionId;
     [FieldOffset(16)] public DateTime olDeliveryD;
     [FieldOffset(24)] public double olAmount;
     [FieldOffset(32)] public int olIId;
-    [FieldOffset(36)] public int olSupplyWId;
+    [FieldOffset(36)] public int olOId;
     [FieldOffset(40)] public int olQuantity;
 
     public int SerializedLength => 44;

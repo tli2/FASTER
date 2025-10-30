@@ -135,12 +135,12 @@ public class RowRecord
 public class Warehouse : RowRecord
 {
     public byte wId;
-    public string wName;
-    public string wStreetAddress;
-    public string wCity;
-    public string wState;
-    public string wZip;
-    public double wTax;
+    // public string wName;
+    // public string wStreetAddress;
+    // public string wCity;
+    // public string wState;
+    // public string wZip;
+    // public double wTax;
     public double wYtd;
 }
 
@@ -148,12 +148,12 @@ public class District : RowRecord
 {
     public byte dId;
     public byte dWId;
-    public string dName;
-    public string dStreetAddress;
-    public string dCity;
-    public string dState;
-    public string dZip;
-    public int dTax;
+    // public string dName;
+    // public string dStreetAddress;
+    // public string dCity;
+    // public string dState;
+    // public string dZip;
+    // public int dTax;
     public double dYtd;
     public int dNextOrderId;
 }
@@ -196,26 +196,26 @@ public struct DistrictKey : IEquatable<DistrictKey>
 
 public class Customer : RowRecord
 {
-    public byte cID;
+    public int cID;
     public byte cDId;
     public byte cWId;
-    public string cFirstName;
-    public string cMiddle;
-    public string cLastName;
-    public string cStreet1;
-    public string cStreet2;
-    public string cCity;
-    public string cState;
-    public string cZip;
-    public string cPhone;
-    public DateTime cSince;
-    public string cCredit;
-    public double cCreditLim;
-    public double cDiscount;
+    // public string cFirstName;
+    // public string cMiddle;
+    // public string cLastName;
+    // public string cStreet1;
+    // public string cStreet2;
+    // public string cCity;
+    // public string cState;
+    // public string cZip;
+    // public string cPhone;
+    // public DateTime cSince;
+    // public string cCredit;
+    // public double cCreditLim;
+    // public double cDiscount;
     public double cBalance;
     public double cYtdPayment;
     public int cPaymentCnt;
-    public int cDeliveryCnt;
+    // public int cDeliveryCnt;
 }
 
 [StructLayout(LayoutKind.Explicit, Size = 8)]
@@ -256,17 +256,6 @@ public struct CustomerKey : IEquatable<CustomerKey>
     {
         return word.GetHashCode();
     }
-}
-
-public class History : RowRecord
-{
-    public int hCId;
-    public byte hCDId;
-    public byte hCWId;
-    public byte hDId;
-    public byte hWId;
-    public DateTime hDate;
-    public double hAmount;
 }
 
 public class Order : RowRecord 
@@ -343,7 +332,7 @@ public class OrderLine : RowRecord
     public byte olWId;
     public byte olNumber;
     public int olIId;
-    public int olSupplyWId;
+    public byte olSupplyWId;
     public DateTime olDeliveryD;
     public int olQuantity;
     public double olAmount;
@@ -407,9 +396,9 @@ public class NewOrder : RowRecord
 public class Item : RowRecord
 {
     public int iId;
-    public string iName;
+    // public string iName;
     public double iPrice;
-    public int iData;
+    // public int iData;
 }
 
 public class Stock : RowRecord

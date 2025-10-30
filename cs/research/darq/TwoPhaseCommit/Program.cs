@@ -11,8 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using FASTER.common;
-using Grpc.Core.Interceptors;
+using Grpc.Core;
 using protobuf;
 
 namespace TwoPhaseCommit;
@@ -34,9 +33,13 @@ public class Options
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
-    [Option('w', "window", Required = false,
+    [Option('w', "window", Required = false, Default = 64,
         HelpText = "number of outstanding client requests allowed")]
     public int Window { get; set; }
+    
+    [Option('t', "num-transactions", Required = false, Default = 100000,
+        HelpText = "number of total transactions to run")]
+    public int NumTransactions { get; set; }
     
     [Option('f', "fail", Required = false,
         HelpText = "Whether to force a rollback halfway through the workload")]
@@ -57,16 +60,12 @@ public class Program
             case "client":
                 await LaunchBenchmarkClient(options, environment);
                 break;
-            case "coordinator":
-                await LaunchCommitCoordinatorService(options, environment);
-                break;
             case "participant":
-                await LaunchParticipantService(options, environment);
+                await LaunchTpccShardService(options, environment);
                 break;
             case "dprfinder":
                 await LaunchDprFinder(options, environment);
                 break;
-
             default:
                 throw new NotImplementedException();
         }
@@ -74,88 +73,90 @@ public class Program
 
     private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
-        var numTransactionsToRun = 30000;
-        var countdownEvent = new CountdownEvent(numTransactionsToRun);
-        var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
-        var sessionPool = new SimpleObjectPool<DprSession>(() => new DprSession());
-        var channels = new List<GrpcChannel>();
-        for (var i = 0; i < 4; i++)
-            channels.Add(GrpcChannel.ForAddress(environment.GetParticipantConnString(i)));
-
-        var coordinator =
-            new CommitCoordinatorService.CommitCoordinatorServiceClient(
-                GrpcChannel.ForAddress(environment.GetCoordinatorConnString()));
-        var measurements = new List<(long, long)>();
-        for (var i = 0; i < numTransactionsToRun; i++)
-            measurements.Add((0, 0));
-        
+        Console.WriteLine($"Populating databases...");
         var stopwatch = Stopwatch.StartNew();
-        var rateLimiter = new SemaphoreSlim(options.Window, options.Window);
-        for (var i = 0; i < numTransactionsToRun; i++)
+        var items = TpccWorkloadGenerator.GenerateItems(new Random());
+        var connections = new ConcurrentDictionary<int, GrpcChannel>();
+        var loadTasks = new List<Task>();
+        for (var i = 0; i < environment.GetNumShards(); i++)
         {
-            if (options.Fail && i == numTransactionsToRun / 2)
+            var channel = GrpcChannel.ForAddress(environment.GetShardConnString(i));
+            connections.TryAdd(i, channel);
+            var loadDataRequest = new LoadDataRequest
             {
-                if (options.Speculative)
-                    finder.ForceRollback();
-                else
-                {
-                    var session = sessionPool.Checkout();
-                    session.UnsafeReset();
-                    var client = new CommitParticipantService.CommitParticipantServiceClient(
-                        channels[0].Intercept(new DprClientInterceptor(session)));
-                    await client.ForceFailoverAsync(new ForceFailoverMessage());
-                    sessionPool.Return(session);
-                }
-            }
-            await rateLimiter.WaitAsync();
-            var transaction = new TransactionsRequest
-            {
-                TxnId = i
+                Seed = i
             };
-            var startTime = stopwatch.ElapsedTicks;
-            var startTimeMilli = stopwatch.ElapsedMilliseconds;
-            _ = Task.Run(async () =>
+            foreach (var item in items)
+                loadDataRequest.Items.Add(new protobuf.Item
+                {
+                    IId = item.iId,
+                    IPrice = item.iPrice
+                });
+            
+            for (var j = i; j < TpccConstants.NUM_WAREHOUSES; j += environment.GetNumShards())            
+                loadDataRequest.AssignedWarehouseIds.Add(j);
+            
+            loadTasks.Add(new TpccShardService.TpccShardServiceClient(channel).LoadDataAsync(loadDataRequest).ResponseAsync);
+        }
+        await Task.WhenAll(loadTasks);
+        Console.WriteLine($"Populated {environment.GetNumShards()} shards in {stopwatch.Elapsed.TotalSeconds:F2}s");
+        
+        
+        Console.WriteLine($"Pre-generating {options.NumTransactions} transactions...");
+        stopwatch.Restart();
+        var clients = new Dictionary<byte, TpccShardService.TpccShardServiceClient>();
+        for (byte i = 0; i < TpccConstants.NUM_WAREHOUSES; i++)
+        {
+            var channel = connections[i / environment.GetNumShards()];
+            clients.Add(i, new TpccShardService.TpccShardServiceClient(channel));
+        }
+        var workload = TpccWorkloadGenerator.GenerateWorkload(clients, TpccConstants.NUM_WAREHOUSES, options.NumTransactions);
+        Console.WriteLine($"Generation complete in {stopwatch.Elapsed.TotalSeconds:F2}s");
+        
+        
+        Console.WriteLine($"Executing workload with...");
+        
+        // Use a thread-safe counter for successful transactions
+        long transactionsProcessed = 0;
+        stopwatch.Restart();
+        ConcurrentQueue<(long, long)> measurements = new ConcurrentQueue<(long, long)>();
+        // Parallel.ForEachAsync is the perfect tool for this.
+        // It will run up to MAX_PARALLELISM tasks from the 'workload' list concurrently.
+        await Parallel.ForEachAsync(workload,
+            new ParallelOptions { MaxDegreeOfParallelism = options.Window },
+            async (transaction, cancellationToken) =>
             {
-                // Console.WriteLine($"Starting transaction number {transaction.TxnId}");
                 try
                 {
-                    foreach (var channel in channels)
-                    {
-                        var session = sessionPool.Checkout();
-                        session.UnsafeReset();
-                        // Speculatively send transactions 
-                        var client = new CommitParticipantService.CommitParticipantServiceClient(
-                            channel.Intercept(new DprClientInterceptor(session)));
-                        await client.StartTransactionAsync(transaction);
-                        sessionPool.Return(session);
-                    }
-
-                    // Commit is non-speculative
-                    var response = await coordinator.CommitAsync(new TransactionsRequest(transaction));
-                    measurements[(int)transaction.TxnId] =
-                        (startTimeMilli, response.Success ? stopwatch.ElapsedTicks - startTime : -1);
-
+                    var startTime = stopwatch.ElapsedTicks;
+                    // Run the pre-generated task (which includes the RPC call)
+                    await transaction();
+                    Interlocked.Increment(ref transactionsProcessed);
                 }
-                catch (Exception e1)
+                catch (RpcException ex)
                 {
-                    // Console.WriteLine($"transaction {transaction.TxnId} threw exception {e1.Message} -- treating as an abort");
-                    // negative to indicate abort
-                    measurements[(int)transaction.TxnId] =
-                        (startTimeMilli, -1);
+                    Console.Error.WriteLine($"RPC Error: {ex.Status.Detail}");
                 }
-                finally
+                catch (Exception ex)
                 {
-                    rateLimiter.Release();
-                    countdownEvent.Signal();
+                    Console.Error.WriteLine($"Client Error: {ex.Message}");
                 }
             });
-        }
-
-        countdownEvent.Wait();
-        await WriteResults(options, environment, measurements);
+        
+        stopwatch.Stop();
+        Console.WriteLine("Execution complete.");
+        
+        // --- RESULTS ---
+        Console.WriteLine($"\n--- RESULTS ---");
+        double elapsedSeconds = stopwatch.Elapsed.TotalSeconds;
+        double tps = transactionsProcessed / elapsedSeconds;
+        
+        Console.WriteLine($"Processed: {transactionsProcessed:N0} transactions");
+        Console.WriteLine($"Time:      {elapsedSeconds:F2}s");
+        Console.WriteLine($"TPS:       {tps:N2}");
     }
 
-    private static async Task WriteResults(Options options, IEnvironment environment,List<(long, long)> measurements)
+    private static async Task WriteResults(Options options, IEnvironment environment, List<(long, long)> measurements)
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
@@ -170,72 +171,6 @@ public class Program
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
         await environment.PublishResultsAsync(options.OutputFile, memoryStream);
-    }
-
-    public static async Task LaunchCommitCoordinatorService(Options options, IEnvironment environment)
-    {
-        var builder = WebApplication.CreateBuilder();
-        
-        builder.Logging.AddConsole();
-        builder.Logging.SetMinimumLevel(LogLevel.Warning);
-        builder.WebHost.ConfigureKestrel(serverOptions =>
-        {
-            serverOptions.Listen(IPAddress.Any, environment.GetCoordinatorPort(options),
-                listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
-            serverOptions.Limits.MinRequestBodyDataRate = null;
-        });
-        
-        var checkpointManager = environment.GetCoordinatorCheckpointManager(options);
-        builder.Services.AddSingleton(new FasterLogSettings
-        {
-            LogDevice = environment.GetCoordinatorDevice(options),
-            MemorySizeBits = 30,
-            LogCommitManager = checkpointManager,
-            FastCommitMode = true,
-            RemoveOutdatedCommits = false,
-            TryRecoverLatest = false,
-            AutoRefreshSafeTailAddress = true,
-            AutoCommit = false
-        });
-        
-        builder.Services.AddSingleton(new DprWorkerOptions
-        {
-            Me = new DprWorkerId(options.WorkerName),
-            DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
-            CheckpointPeriodMilli = 10,
-            RefreshPeriodMilli = 1
-        });
-        
-        var channels = new List<GrpcChannel>();
-        for (var i = 0; i < 4; i++)
-            channels.Add(GrpcChannel.ForAddress(environment.GetParticipantConnString(i)));
-        builder.Services.AddSingleton(new CommitCoordinatorSettings
-        {
-            participants = channels,
-            speculative = options.Speculative
-        });
-
-        // TODO(Tianyu): Switch to epoch after testing
-        builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
-        builder.Services.AddSingleton<CommitLog>();
-        builder.Services.AddSingleton<CommitLogBackgroundService>();
-        builder.Services.AddSingleton<StateObject>(sp => sp.GetService<CommitLog>());
-        builder.Services.AddSingleton<DprServerInterceptor<CommitLog>>();
-        builder.Services.AddSingleton<CommitCoordinatorServiceImpl>();
-        
-        builder.Services.AddHostedService<CommitLogBackgroundService>(provider =>
-            provider.GetRequiredService<CommitLogBackgroundService>());
-        builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
-        builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<CommitLog>>(); });
-        var app = builder.Build();
-        
-        app.MapGrpcService<CommitCoordinatorServiceImpl>();
-        app.MapGet("/",
-            () =>
-                "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
-        await app.RunAsync();
-        foreach (var channel in channels)
-            channel.Dispose();
     }
 
     public static async Task LaunchDprFinder(Options options, IEnvironment environment)
@@ -267,7 +202,7 @@ public class Program
         await app.RunAsync();
     }
 
-    public static async Task LaunchParticipantService(Options options, IEnvironment environment)
+    public static async Task LaunchTpccShardService(Options options, IEnvironment environment)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
@@ -275,15 +210,16 @@ public class Program
 
         builder.WebHost.ConfigureKestrel(serverOptions =>
         {
-            serverOptions.Listen(IPAddress.Any, environment.GetParticipantPort(options),
+            serverOptions.Listen(IPAddress.Any, environment.GetShardPort(options),
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
             serverOptions.Limits.MinRequestBodyDataRate = null;
         });
-        var checkpointManager = environment.GetParticipantCheckpointManager(options);
+        var checkpointManager = environment.GetShardCheckpointManager(options);
         
+        // TODO(Tianyu): Change to TpccShardSettings
         builder.Services.AddSingleton(new FasterLogSettings
         {
-            LogDevice = environment.GetParticipantDevice(options),
+            LogDevice = environment.GetShardDevice(options),
             MemorySizeBits = 30,
             LogCommitManager = checkpointManager,
             FastCommitMode = true,
@@ -301,21 +237,20 @@ public class Program
             RefreshPeriodMilli = 1
         });
 
-        // TODO(Tianyu): Switch to epoch after testing
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
-        builder.Services.AddSingleton<CommitLog>();
-        builder.Services.AddSingleton<CommitLogBackgroundService>();
-        builder.Services.AddSingleton<StateObject>(sp => sp.GetService<CommitLog>());
-        builder.Services.AddSingleton<DprServerInterceptor<CommitLog>>();
-        builder.Services.AddSingleton<CommitParticipantServiceImpl>();
+        builder.Services.AddSingleton<TpccShard>();
+        builder.Services.AddSingleton<TpccShardBackgroundService>();
+        builder.Services.AddSingleton<StateObject>(sp => sp.GetService<TpccShard>());
+        builder.Services.AddSingleton<DprServerInterceptor<TpccShard>>();
+        builder.Services.AddSingleton<TpccShardServiceImpl>();
         
-        builder.Services.AddHostedService<CommitLogBackgroundService>(provider =>
-            provider.GetRequiredService<CommitLogBackgroundService>());
+        builder.Services.AddHostedService<TpccShardBackgroundService>(provider =>
+            provider.GetRequiredService<TpccShardBackgroundService>());
         builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
-        builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<CommitLog>>(); });
+        builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<TpccShard>>(); });
         var app = builder.Build();
         
-        app.MapGrpcService<CommitParticipantServiceImpl>();
+        app.MapGrpcService<TpccShardServiceImpl>();
         app.MapGet("/",
             () =>
                 "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");

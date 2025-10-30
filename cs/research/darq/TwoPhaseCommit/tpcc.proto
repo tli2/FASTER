@@ -1,9 +1,14 @@
 syntax = "proto3";
 option csharp_namespace = "protobuf";
 
+message Item {
+  int32 i_id = 1;
+  double i_price = 2;
+}
+
 message OrderLine {
   int32 item_id = 1;
-  int32 w_id = 2;
+  int32 w_supplying_id = 2;
   int32 quantity = 3;
 }
 
@@ -18,16 +23,37 @@ message NewOrderResponse {
   bool success = 1;
 }
 
+message RemoteOrderRequest {
+  int64 txn_id = 1;
+  repeated OrderLine items = 2;
+}
+
+message RemoteOrderResponse {
+  bool success = 1;
+}
+
 message PaymentRequest {
   int32 w_id = 1;
   int32 d_id = 2;
   int32 c_id = 3;
   int32 cw_id = 4;
   int32 cd_id = 5;
-  float amount = 6;
+  double amount = 6;
 }
 
 message PaymentResponse {
+  bool success = 1;
+}
+
+message RemotePaymentRequest {
+  int64 txn_id = 1;
+  int32 c_id = 2;
+  int32 cw_id = 3;
+  int32 cd_id = 4;
+  double amount = 5;
+}
+
+message RemotePaymentResponse {
   bool success = 1;
 }
 
@@ -64,14 +90,53 @@ message StockLevelResponse {
   int32 belowCount = 1;
 }
 
+message CommitRemoteParticipantRequest {
+  int64 txn_id = 1;
+}
+
+message CommitRemoteParticipantResponse {
+  bool ack = 1;
+}
+
+message AbortRemoteParticipantRequest {
+  int64 txn_id = 1;
+}
+
+message AbortRemoteParticipantResponse {
+  bool ack = 1;
+}
+
+message LoadDataRequest {
+  int32 seed = 1;
+  repeated int32 assigned_warehouse_ids = 2;
+  repeated Item items = 3;
+}
+
+message LoadDataResponse {
+  bool success = 1;
+}
+
 service TpccShardService {
+  // End-to-end transactions
   rpc NewOrder(NewOrderRequest) returns (NewOrderResponse);
   
   rpc Payment(PaymentRequest) returns (PaymentResponse);
-
+  
   rpc OrderStatus(OrderStatusRequest) returns (OrderStatusResponse);
   
   rpc Delivery(DeliveryRequest) returns (DeliveryResponse);
   
   rpc StockLevel(StockLevelRequest) returns (StockLevelResponse);
+  
+  // Distributed transactions
+  rpc RemoteOrder(RemoteOrderRequest) returns (RemoteOrderResponse);
+  
+  rpc RemotePayment(RemotePaymentRequest) returns (RemotePaymentResponse);
+  
+  rpc CommitRemoteParticipant(CommitRemoteParticipantRequest) returns (CommitRemoteParticipantResponse);
+  
+  rpc AbortRemoteParticipant(AbortRemoteParticipantRequest) returns (AbortRemoteParticipantResponse);
+  
+  // Data loading
+  rpc LoadData(LoadDataRequest) returns (LoadDataResponse);
 }

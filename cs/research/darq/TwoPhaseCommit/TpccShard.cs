@@ -7,6 +7,7 @@ using FASTER.core;
 using FASTER.darq;
 using FASTER.libdpr;
 using Grpc.Core;
+using Grpc.Net.Client;
 using Microsoft.Extensions.Hosting;
 using protobuf;
 
@@ -23,7 +24,7 @@ public class TransactionContext
         sharedLocks.Clear();
         exclusiveLocks.Clear();
         undoActions.Clear();
-        this.txnId = transactionId;
+        txnId = transactionId;
         return this;
     }
     
@@ -31,7 +32,6 @@ public class TransactionContext
     
     public bool ReadOnly() => undoActions.Count == 0;
 
-    // TODO(Tianyu): use a special wrapped implementation of enqueue to properly drop epoch protection only when we need to wait on the lock
     public async ValueTask<bool> TryAccessRead(RowRecord record)
     {
         if (!await record.TryAcquireShared(txnId)) return false;
@@ -64,9 +64,16 @@ public class TransactionContext
     }
 }
 
+
+public class TpccShardSettings
+{
+    public FasterLogSettings logSettings;
+    public Dictionary<int, (int, string)> clusterMap;
+}
+
 public class TpccShard : StateObject
 {
-    private FasterLogSettings settings;
+    private TpccShardSettings settings;
     public FasterLog log;
     public LongValueAttachment timestamp = new();
     
@@ -81,12 +88,13 @@ public class TpccShard : StateObject
     
     public SimpleObjectPool<TransactionContext> objectPool = new(() => new TransactionContext());
     public ConcurrentDictionary<long, TransactionContext> activeTransactions = new();
+    public ConcurrentDictionary<long, TransactionContext> preparedTransactions = new();
     public ConcurrentDictionary<long, ConcurrentQueue<TransactionContext>> recentlyCommittedTransactions = new();
 
-    public TpccShard(FasterLogSettings settings, IVersionScheme versionScheme, DprWorkerOptions options) : base(versionScheme, options)
+    public TpccShard(TpccShardSettings settings, IVersionScheme versionScheme, DprWorkerOptions options) : base(versionScheme, options)
     {
         this.settings = settings;
-        log = new FasterLog(settings);
+        log = new FasterLog(settings.logSettings);
         AddAttachment(timestamp);
     }
 
@@ -99,7 +107,6 @@ public class TpccShard : StateObject
         return txn;
     }
 
-    // TODO(Tianyu): use a special wrapped implementation of enqueue to properly drop epoch protection only when we need to wait on the enqueue
     public async ValueTask Commit(TransactionContext txn)
     {
         if (!txn.ReadOnly())
@@ -109,6 +116,29 @@ public class TpccShard : StateObject
         }
         txn.ReleaseLocks();
         activeTransactions.TryRemove(txn.Id(), out _);
+    }
+    
+    public async ValueTask Prepare(TransactionContext txn)
+    {
+        if (!txn.ReadOnly())
+        {
+            // TODO(Tianyu): Change to a PREPARED record
+            await log.EnqueueAsync(LogRecords.CreateCommitRecord(txn.Id()));
+            preparedTransactions.TryAdd(txn.Id(), txn);;
+        }
+        txn.ReleaseLocks();
+        activeTransactions.TryRemove(txn.Id(), out _);
+    }
+    
+    public async ValueTask CommitPrepared(TransactionContext txn)
+    {
+        if (!txn.ReadOnly())
+        {
+            await log.EnqueueAsync(LogRecords.CreateCommitRecord(txn.Id()));
+            recentlyCommittedTransactions.GetOrAdd(Version(), _ => new ConcurrentQueue<TransactionContext>()).Enqueue(txn);;
+        }
+        txn.ReleaseLocks();
+        preparedTransactions.TryRemove(txn.Id(), out _);
     }
     
     public async ValueTask Abort(TransactionContext txn, bool yieldRecord = true)
@@ -136,15 +166,13 @@ public class TpccShard : StateObject
         }
         // Any uncommitted active transaction at this point must have been lost, so we can abort
         foreach (var txn in activeTransactions.Values)
-        {
             Abort(txn, false);
-        }
         activeTransactions.Clear();
     }
 
     public override void RestoreCheckpoint(long version, out ReadOnlySpan<byte> metadata)
     {
-        log = new FasterLog(settings);
+        log = new FasterLog(settings.logSettings);
         log.Recover(version);
         metadata = log.RecoveredCookie;
         // Use timestamp field to determine whether we are rolling back or recovering from a crash
@@ -175,16 +203,15 @@ public class TpccShard : StateObject
     {
         if (recentlyCommittedTransactions.TryRemove(version, out var txns))
             while (txns.TryDequeue(out var txn)) objectPool.Return(txn);
-        settings.LogCommitManager.RemoveCommit(version);
+        settings.logSettings.LogCommitManager.RemoveCommit(version);
     }
 
     public override IEnumerable<Memory<byte>> GetUnprunedVersions()
     {
-        var commits = settings.LogCommitManager.ListCommits().ToList();
+        var commits = settings.logSettings.LogCommitManager.ListCommits().ToList();
         return commits.Select(commitNum =>
         {
-            // TODO(Tianyu): hacky
-            var newLog = new FasterLog(settings);
+            var newLog = new FasterLog(settings.logSettings);
             newLog.Recover(commitNum);
             var commitCookie = newLog.RecoveredCookie;
             newLog.Dispose();
@@ -244,6 +271,27 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             throw new DprSessionRolledBackException(bg.so.WorldLine());
     }
 
+    private async ValueTask PrepareWrapper(TransactionContext txn)
+    {
+        var v = bg.so.Prepare(txn);
+        if (v.IsCompleted) return;
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        await v;
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+    }
+
+    
+    private async ValueTask CommitPreparedWrapper(TransactionContext txn)
+    {
+        var v = bg.so.CommitPrepared(txn);
+        if (v.IsCompleted) return;
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        await v;
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+    }
+
 
     private async ValueTask<bool> TryAccessWriteWrapper(TransactionContext txn, RowRecord record)
     {
@@ -289,6 +337,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
     
     public override async Task<NewOrderResponse> NewOrder(NewOrderRequest request, ServerCallContext context)
     {
+        // TODO(Tianyu): Check for remote warehouses outside of transaction protection and start a distributed transaction
         var txn = bg.so.StartTransaction();
         var w = bg.so.warehouses[(byte) request.WId];
         if (!await TryAccessReadWrapper(txn, w))
@@ -342,7 +391,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             var ol = request.Items[i];
             // Read-only table, no concurrency control required
             var item = bg.so.items[ol.ItemId];
-            var s = bg.so.stocks[new StockKey((byte)ol.WId, ol.ItemId)];
+            var s = bg.so.stocks[new StockKey((byte)ol.WSupplyingId, ol.ItemId)];
             if (!await TryAccessWriteWrapper(txn, s))
             {
                 return new NewOrderResponse
@@ -353,18 +402,18 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             var oldQuantity = s.sQuantity;
             txn.AddUndoAction(() => s.sQuantity = oldQuantity);
             var newQuantity = s.sQuantity > ol.Quantity + 10 ? s.sQuantity - ol.Quantity : s.sQuantity - ol.Quantity + 91;
-            await EnqueueWrapper<UpdateStockLogRecord>(LogRecords.CreateUpdateStockRecord(txn.Id(), (byte) ol.WId, ol.ItemId, newQuantity));
+            await EnqueueWrapper<UpdateStockLogRecord>(LogRecords.CreateUpdateStockRecord(txn.Id(), (byte) ol.WSupplyingId, ol.ItemId, newQuantity));
             s.sQuantity = newQuantity;
             
-            var olKey = new OrderLineKey((byte) ol.WId, (byte) request.DId, oId, (byte) i);
+            var olKey = new OrderLineKey((byte) request.WId, (byte) request.DId, oId, (byte) i);
             var newOrderLine = new OrderLine
             {
                 olOId = oId,
                 olDId = (byte) request.DId,
-                olWId = (byte) ol.WId,
+                olWId = (byte) request.WId,
                 olNumber = (byte) i,
                 olIId = ol.ItemId,
-                olSupplyWId = ol.WId,
+                olSupplyWId = (byte) ol.WSupplyingId,
                 olDeliveryD = default,
                 olQuantity = ol.Quantity,
                 olAmount = ol.Quantity * item.iPrice
@@ -375,6 +424,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             bg.so.orderLines.TryAdd(olKey, newOrderLine);
         }
 
+        // TODO(Tianyu): Use 2pc if necessary
         await CommitWrapper(txn); 
         return new NewOrderResponse
         {
@@ -483,7 +533,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             response.OrderLines.Add(new protobuf.OrderLine
             {
                 ItemId = v.Value.olIId,
-                WId = v.Value.olWId,
+                WSupplyingId = v.Value.olSupplyWId,
                 Quantity = v.Value.olQuantity
             });
         }
@@ -491,6 +541,26 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         await CommitWrapper(txn);
         response.Success = true;
         return response;
+    }
+
+    public override Task<RemoteOrderResponse> RemoteOrder(RemoteOrderRequest request, ServerCallContext context)
+    {
+        return base.RemoteOrder(request, context);
+    }
+
+    public override Task<RemotePaymentResponse> RemotePayment(RemotePaymentRequest request, ServerCallContext context)
+    {
+        return base.RemotePayment(request, context);
+    }
+
+    public override Task<CommitRemoteParticipantResponse> CommitRemoteParticipant(CommitRemoteParticipantRequest request, ServerCallContext context)
+    {
+        bg.so.activeTransactions.
+    }
+
+    public override Task<AbortRemoteParticipantResponse> AbortRemoteParticipant(AbortRemoteParticipantRequest request, ServerCallContext context)
+    {
+        return base.AbortRemoteParticipant(request, context);
     }
 
     public override Task<DeliveryResponse> Delivery(DeliveryRequest request, ServerCallContext context)
@@ -501,5 +571,14 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
     public override Task<StockLevelResponse> StockLevel(StockLevelRequest request, ServerCallContext context)
     {
         throw new NotImplementedException();   
+    }
+
+    public override Task<LoadDataResponse> LoadData(LoadDataRequest request, ServerCallContext context)
+    {
+        TpccWorkloadGenerator.GenerateShardData(bg.so, request);
+        return Task.FromResult(new LoadDataResponse
+        {
+            Success = true
+        });   
     }
 }

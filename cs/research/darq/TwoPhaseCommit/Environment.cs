@@ -6,21 +6,14 @@ namespace TwoPhaseCommit;
 
 public interface IEnvironment
 {
-    public string GetCoordinatorConnString();
+    public int GetNumShards();
+    public string GetShardConnString(int index);
 
-    public int GetCoordinatorPort(Options options);
+    public int GetShardPort(Options options);
 
-    public FileBasedCheckpointManager GetCoordinatorCheckpointManager(Options options);
+    public FileBasedCheckpointManager GetShardCheckpointManager(Options options);
 
-    public IDevice GetCoordinatorDevice(Options options);
-
-    public string GetParticipantConnString(int index);
-
-    public int GetParticipantPort(Options options);
-
-    public FileBasedCheckpointManager GetParticipantCheckpointManager(Options options);
-
-    public IDevice GetParticipantDevice(Options options);
+    public IDevice GetShardDevice(Options options);
 
     public string GetDprFinderConnString();
 
@@ -33,39 +26,19 @@ public interface IEnvironment
 
 public class LocalDebugEnvironment : IEnvironment
 {
-    public string GetCoordinatorConnString()
-    {
-        return $"http://127.0.0.1:15721";
-    }
+    public int GetNumShards() => 2;
 
-    public int GetCoordinatorPort(Options options)
-    {
-        return 15721;
-    }
-
-    public FileBasedCheckpointManager GetCoordinatorCheckpointManager(Options options)
-    {
-        var result = new FileBasedCheckpointManager(
-            new LocalStorageNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"D:\\coordinator{options.WorkerName}"), removeOutdated: false);
-        result.PurgeAll();
-        return result;
-    }
-
-    public IDevice GetCoordinatorDevice(Options options) =>
-        new NativeStorageDevice($"D:\\coordinator{options.WorkerName}.log", deleteOnClose: false);
-
-    public string GetParticipantConnString(int index)
+    public string GetShardConnString(int index)
     {
         return $"http://127.0.0.1:{15722 + index}";
     }
 
-    public int GetParticipantPort(Options options)
+    public int GetShardPort(Options options)
     {
         return 15722 + options.WorkerName;
     }
 
-    public FileBasedCheckpointManager GetParticipantCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetShardCheckpointManager(Options options)
     {
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
@@ -74,7 +47,7 @@ public class LocalDebugEnvironment : IEnvironment
         return result;    
     }
 
-    public IDevice GetParticipantDevice(Options options) => new NativeStorageDevice($"D:\\participant{options.WorkerName}.log", deleteOnClose: false);
+    public IDevice GetShardDevice(Options options) => new NativeStorageDevice($"D:\\participant{options.WorkerName}.log", deleteOnClose: false);
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";
 
@@ -102,48 +75,24 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 {
     private bool cleanStart;
     
+    public int GetNumShards() => 4;
+    
     public KubernetesLocalStorageEnvironment(bool cleanStart)
     {
         this.cleanStart = cleanStart;
     }
-    public string GetCoordinatorConnString()
-    {
-        return "http://coordinator.dse.svc.cluster.local:15721"; 
-    }
-
-    public int GetCoordinatorPort(Options options)
-    {
-        return 15721;
-    }
-
-    public FileBasedCheckpointManager GetCoordinatorCheckpointManager(Options options)
-    {
-        var result = new FileBasedCheckpointManager(
-            new LocalStorageNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"/mnt/plrs/coordinator{options.WorkerName}"), removeOutdated: false);
-        if (cleanStart)
-            result.PurgeAll();
-        return result;
-    }
-
-    public IDevice GetCoordinatorDevice(Options options)
-    {
-        if (cleanStart)
-            NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/coordinator{options.WorkerName}.log");
-        return new NativeStorageDevice($"/mnt/plrs/coordinator{options.WorkerName}.log");    
-    }
-
-    public string GetParticipantConnString(int index)
+    
+    public string GetShardConnString(int index)
     {
         return $"http://participant{index}.dse.svc.cluster.local:15721";
     }
 
-    public int GetParticipantPort(Options options)
+    public int GetShardPort(Options options)
     {
         return 15721;
     }
 
-    public FileBasedCheckpointManager GetParticipantCheckpointManager(Options options)
+    public FileBasedCheckpointManager GetShardCheckpointManager(Options options)
     {
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
@@ -153,7 +102,7 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
         return result;
     }
 
-    public IDevice GetParticipantDevice(Options options)
+    public IDevice GetShardDevice(Options options)
     {
         if (cleanStart)
             NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/participant{options.WorkerName}.log");

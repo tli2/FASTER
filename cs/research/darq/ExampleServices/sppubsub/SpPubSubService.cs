@@ -219,7 +219,6 @@ public class SpPubSubService : SpPubSub.SpPubSubBase
     private SimpleObjectPool<FASTER.libdpr.StepRequest> stepRequestPool;
     private SpPubSubBackendService backend;
 
-
     public SpPubSubService(SpPubSubBackendService backend)
     {
         this.backend = backend;
