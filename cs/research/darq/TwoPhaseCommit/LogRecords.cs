@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Azure.Storage.Blobs.Models;
 using FASTER.core;
+using protobuf;
 
 namespace TwoPhaseCommit;
 
@@ -8,6 +10,8 @@ public enum LogRecordType : byte
 {
     COMMIT,
     ABORT,
+    TWO_PC_START,
+    PREPARED,
     INSERT_ORDER,
     INSERT_ORDER_LINE,
     UPDATE_NEXT_ORDER_ID,
@@ -27,24 +31,34 @@ public struct AbortLogRecord : ILogRecord
 {
     [FieldOffset(0)] public LogRecordType type;
     [FieldOffset(8)] public long transactionId;
-    
+
     public int SerializedLength => 16;
 
     public void SerializeTo(Span<byte> dest)
     {
         MemoryMarshal.Write(dest, ref this);
     }
-    
+
     public void Replay(TpccShard db)
     {
-        if (db.activeTransactions.TryRemove(transactionId, out var txn))
-        {
-            txn.Undo();
-            db.objectPool.Return(txn);       
-        }
-        else
+        if (!db.activeTransactions.TryRemove(transactionId, out var txn))
             // Should not happen
-            Debug.Assert(false);    
+            Debug.Assert(false);
+
+        txn.Undo();
+        if (txn.TwoPC())
+        {
+            // If it's a distributed transaction, need to retry and ensure that everyone knows about the commit
+            foreach (var c in db.channels.Values)
+                // TODO(Tianyu): Need to consider the situation where the shard service is down
+                new TpccShardService.TpccShardServiceClient(c).AbortRemoteParticipant(
+                    new AbortRemoteParticipantRequest
+                    {
+                        TxnId = transactionId
+                    });
+        }
+
+        db.objectPool.Return(txn);
     }
 }
 
@@ -53,23 +67,83 @@ public struct CommitLogRecord : ILogRecord
 {
     [FieldOffset(0)] public LogRecordType type;
     [FieldOffset(8)] public long transactionId;
-    
+
     public int SerializedLength => 16;
 
     public void SerializeTo(Span<byte> dest)
     {
         MemoryMarshal.Write(dest, ref this);
     }
-    
+
     public void Replay(TpccShard db)
     {
-        if (db.activeTransactions.TryRemove(transactionId, out var txn))
-        {
-            db.objectPool.Return(txn);
-        }
-        else
+        if (!db.activeTransactions.TryRemove(transactionId, out var txn))
             // Should not happen
             Debug.Assert(false);
+
+        if (txn.TwoPC())
+        {
+            // If it's a distributed transaction, need to retry and ensure that everyone knows about the commit
+            foreach (var c in db.channels.Values)
+                // TODO(Tianyu): Need to consider the situation where the shard service is down
+                new TpccShardService.TpccShardServiceClient(c).CommitRemoteParticipant(
+                    new CommitRemoteParticipantRequest
+                    {
+                        TxnId = transactionId
+                    });
+        }
+
+        db.objectPool.Return(txn);
+    }
+}
+
+[StructLayout(LayoutKind.Explicit, Size = 16)]
+public struct TwoPCStartLogRecord : ILogRecord
+{
+    [FieldOffset(0)] public LogRecordType type;
+    [FieldOffset(8)] public long transactionId;
+
+    public int SerializedLength => 16;
+
+    public void SerializeTo(Span<byte> dest)
+    {
+        MemoryMarshal.Write(dest, ref this);
+    }
+
+    public void Replay(TpccShard db)
+    {
+        if (!db.activeTransactions.TryGetValue(transactionId, out var tx))
+        {
+            tx = db.objectPool.Checkout().Reset(transactionId);
+            db.activeTransactions.TryAdd(transactionId, tx);
+        }
+
+        tx.MarkTwoPC();
+    }
+}
+
+[StructLayout(LayoutKind.Explicit, Size = 16)]
+public struct PreparedLogRecord : ILogRecord
+{
+    [FieldOffset(0)] public LogRecordType type;
+    [FieldOffset(8)] public long transactionId;
+
+    public int SerializedLength => 16;
+
+    public void SerializeTo(Span<byte> dest)
+    {
+        MemoryMarshal.Write(dest, ref this);
+    }
+
+    public void Replay(TpccShard db)
+    {
+        if (!db.activeTransactions.TryGetValue(transactionId, out var tx))
+        {
+            tx = db.objectPool.Checkout().Reset(transactionId);
+            db.activeTransactions.TryAdd(transactionId, tx);
+        }
+
+        tx.MarkPrepared();
     }
 }
 
@@ -101,7 +175,7 @@ public struct InsertOrderLogRecord : ILogRecord
             tx = db.objectPool.Checkout().Reset(transactionId);
             db.activeTransactions.TryAdd(transactionId, tx);
         }
-        
+
         var order = new Order
         {
             oId = oId,
@@ -146,7 +220,7 @@ public struct InsertOrderLineLogRecord : ILogRecord
             tx = db.objectPool.Checkout().Reset(transactionId);
             db.activeTransactions.TryAdd(transactionId, tx);
         }
-        
+
         var orderLine = new OrderLine
         {
             olOId = olOId,
@@ -159,12 +233,12 @@ public struct InsertOrderLineLogRecord : ILogRecord
             olQuantity = olQuantity,
             olAmount = olAmount
         };
-        var key = new OrderLineKey(orderLine.olWId, orderLine.olDId, orderLine.olOId, orderLine.olNumber);;
+        var key = new OrderLineKey(orderLine.olWId, orderLine.olDId, orderLine.olOId, orderLine.olNumber);
+        ;
         tx.AddUndoAction(() => db.orderLines.TryRemove(key));
         // Locks are skipped for replay because we know there are no conflicts
         db.orderLines.TryAdd(new OrderLineKey(olWId, olDId, olOId, olNumber), orderLine);
     }
-    
 }
 
 // Log record for updating the next available order ID for a district.
@@ -186,6 +260,7 @@ public struct UpdateNextOrderIdLogRecord : ILogRecord
             tx = db.objectPool.Checkout().Reset(transactionId);
             db.activeTransactions.TryAdd(transactionId, tx);
         }
+
         var district = db.districts[new DistrictKey(wId, dId)];
         // Locks are skipped for replay because we know there are no conflicts
         district.dNextOrderId++;
@@ -202,7 +277,7 @@ public struct UpdateStockLogRecord : ILogRecord
     [FieldOffset(4)] public int itemId;
     [FieldOffset(8)] public long transactionId;
     [FieldOffset(16)] public int newQuantity;
-    
+
     public int SerializedLength => 20;
     public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, ref this);
 
@@ -213,6 +288,7 @@ public struct UpdateStockLogRecord : ILogRecord
             tx = db.objectPool.Checkout().Reset(transactionId);
             db.activeTransactions.TryAdd(transactionId, tx);
         }
+
         var stock = db.stocks[new StockKey(wId, itemId)];
         var oldQuantity = stock.sQuantity;
         // Locks are skipped for replay because we know there are no conflicts
@@ -240,6 +316,7 @@ public struct UpdateWarehouseYtdLogRecord : ILogRecord
             tx = db.objectPool.Checkout().Reset(transactionId);
             db.activeTransactions.TryAdd(transactionId, tx);
         }
+
         var warehouse = db.warehouses[wId];
         var oldYtd = warehouse.wYtd;
         // Locks are skipped for replay because we know there are no conflicts
@@ -268,7 +345,7 @@ public struct UpdateDistrictYtdLogRecord : ILogRecord
             tx = db.objectPool.Checkout().Reset(transactionId);
             db.activeTransactions.TryAdd(transactionId, tx);
         }
-        
+
         var district = db.districts[new DistrictKey(wId, dId)];
         var oldYtd = district.dYtd;
         district.dYtd = newYtd;
@@ -297,7 +374,7 @@ public struct UpdateCustomerLogRecord : ILogRecord
             tx = db.objectPool.Checkout().Reset(transactionId);
             db.activeTransactions.TryAdd(transactionId, tx);
         }
-        
+
         var customer = db.customers[new CustomerKey(wId, dId, cId)];
         customer.cBalance -= amount;
         customer.cYtdPayment += amount;
@@ -309,15 +386,14 @@ public struct UpdateCustomerLogRecord : ILogRecord
             customer.cYtdPayment -= amountLocal;
             customer.cPaymentCnt--;
         });
-
     }
 }
 
 public static class LogRecords
 {
-    public static unsafe void ApplyLogRecord(byte *b, TpccShard db)
+    public static unsafe void ApplyLogRecord(byte* b, TpccShard db)
     {
-        var type = *(LogRecordType *)b;
+        var type = *(LogRecordType*)b;
         switch (type)
         {
             case LogRecordType.COMMIT:
@@ -348,25 +424,34 @@ public static class LogRecords
                 (*(UpdateCustomerLogRecord*)b).Replay(db);
                 break;
             default:
-                throw new Exception("Unknown log record type");   
+                throw new Exception("Unknown log record type");
         }
     }
-    
-    public static CommitLogRecord CreateCommitRecord(long transactionId) => new() { type = LogRecordType.COMMIT, transactionId = transactionId };
-    public static AbortLogRecord CreateAbortRecord(long transactionId) => new() { type = LogRecordType.ABORT, transactionId = transactionId };
-    
-    public static InsertOrderLogRecord CreateInsertOrderRecord(long transactionId, Order order) => new() 
-    { 
-        type = LogRecordType.INSERT_ORDER, 
-        transactionId = transactionId, 
-        oId = order.oId, 
-        oDId = order.oDId, 
-        oWId = order.oWId, 
-        oCId = order.oCId, 
-        oCarrierId = order.oCarrierId, 
-        oOLCnt = order.oOLCnt, 
-        oAllLocal = order.oAllLocal, 
-        oEntryD = order.oEntryD 
+
+    public static CommitLogRecord CreateCommitRecord(long transactionId) =>
+        new() { type = LogRecordType.COMMIT, transactionId = transactionId };
+
+    public static AbortLogRecord CreateAbortRecord(long transactionId) =>
+        new() { type = LogRecordType.ABORT, transactionId = transactionId };
+
+    public static TwoPCStartLogRecord CreateTwoPCStartRecord(long transactionId) => new()
+        { type = LogRecordType.TWO_PC_START, transactionId = transactionId };
+
+    public static PreparedLogRecord CreatePreparedRecord(long transactionId) =>
+        new() { type = LogRecordType.PREPARED, transactionId = transactionId };
+
+    public static InsertOrderLogRecord CreateInsertOrderRecord(long transactionId, Order order) => new()
+    {
+        type = LogRecordType.INSERT_ORDER,
+        transactionId = transactionId,
+        oId = order.oId,
+        oDId = order.oDId,
+        oWId = order.oWId,
+        oCId = order.oCId,
+        oCarrierId = order.oCarrierId,
+        oOLCnt = order.oOLCnt,
+        oAllLocal = order.oAllLocal,
+        oEntryD = order.oEntryD
     };
 
     public static InsertOrderLineLogRecord CreateInsertOrderLineRecord(long transactionId, OrderLine orderLine) => new()
@@ -383,16 +468,18 @@ public static class LogRecords
         olQuantity = orderLine.olQuantity,
         olAmount = orderLine.olAmount
     };
-    
-    public static UpdateNextOrderIdLogRecord CreateUpdateNextOrderIdRecord(long transactionId, byte wId, byte dId) => new()
-    {
-        type = LogRecordType.UPDATE_NEXT_ORDER_ID,
-        transactionId = transactionId,
-        wId = wId,
-        dId = dId
-    };
 
-    public static UpdateStockLogRecord CreateUpdateStockRecord(long transactionId, byte wId, int itemId, int newQuantity) => new()
+    public static UpdateNextOrderIdLogRecord CreateUpdateNextOrderIdRecord(long transactionId, byte wId, byte dId) =>
+        new()
+        {
+            type = LogRecordType.UPDATE_NEXT_ORDER_ID,
+            transactionId = transactionId,
+            wId = wId,
+            dId = dId
+        };
+
+    public static UpdateStockLogRecord CreateUpdateStockRecord(long transactionId, byte wId, int itemId,
+        int newQuantity) => new()
     {
         type = LogRecordType.UPDATE_STOCK,
         transactionId = transactionId,
@@ -400,16 +487,18 @@ public static class LogRecords
         itemId = itemId,
         newQuantity = newQuantity
     };
-    
-    public static UpdateWarehouseYtdLogRecord CreateUpdateWarehouseYtdRecord(long transactionId, byte wId, double newYtd) => new()
+
+    public static UpdateWarehouseYtdLogRecord CreateUpdateWarehouseYtdRecord(long transactionId, byte wId,
+        double newYtd) => new()
     {
         type = LogRecordType.UPDATE_WAREHOUSE_YTD,
         transactionId = transactionId,
         wId = wId,
         newYtd = newYtd
     };
-    
-    public static UpdateDistrictYtdLogRecord CreateUpdateDistrictYtdRecord(long transactionId, byte wId, byte dId, double newYtd) => new()
+
+    public static UpdateDistrictYtdLogRecord CreateUpdateDistrictYtdRecord(long transactionId, byte wId, byte dId,
+        double newYtd) => new()
     {
         type = LogRecordType.UPDATE_DISTRICT_YTD,
         transactionId = transactionId,
@@ -417,8 +506,9 @@ public static class LogRecords
         dId = dId,
         newYtd = newYtd
     };
-    
-    public static UpdateCustomerLogRecord CreateUpdateCustomerRecord(long transactionId, byte wId, byte dId, int cId, double amount) => new()
+
+    public static UpdateCustomerLogRecord CreateUpdateCustomerRecord(long transactionId, byte wId, byte dId, int cId,
+        double amount) => new()
     {
         type = LogRecordType.UPDATE_CUSTOMER,
         transactionId = transactionId,
@@ -426,5 +516,5 @@ public static class LogRecords
         dId = dId,
         cId = cId,
         amount = amount
-    };    
+    };
 }

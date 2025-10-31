@@ -107,7 +107,7 @@ public class Program
         var clients = new Dictionary<byte, TpccShardService.TpccShardServiceClient>();
         for (byte i = 0; i < TpccConstants.NUM_WAREHOUSES; i++)
         {
-            var channel = connections[i / environment.GetNumShards()];
+            var channel = connections[i % environment.GetNumShards()];
             clients.Add(i, new TpccShardService.TpccShardServiceClient(channel));
         }
         var workload = TpccWorkloadGenerator.GenerateWorkload(clients, TpccConstants.NUM_WAREHOUSES, options.NumTransactions);
