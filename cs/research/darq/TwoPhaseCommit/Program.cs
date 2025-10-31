@@ -132,6 +132,8 @@ public class Program
                     // Run the pre-generated task (which includes the RPC call)
                     await transaction();
                     Interlocked.Increment(ref transactionsProcessed);
+                    var latency = stopwatch.ElapsedTicks - startTime;
+                    measurements.Enqueue((startTime, latency));
                 }
                 catch (RpcException ex)
                 {
@@ -154,6 +156,7 @@ public class Program
         Console.WriteLine($"Processed: {transactionsProcessed:N0} transactions");
         Console.WriteLine($"Time:      {elapsedSeconds:F2}s");
         Console.WriteLine($"TPS:       {tps:N2}");
+        await WriteResults(options, environment, measurements.ToList());
     }
 
     private static async Task WriteResults(Options options, IEnvironment environment, List<(long, long)> measurements)
