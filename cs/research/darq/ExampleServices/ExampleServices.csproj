@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net7.0</TargetFramework>
+        <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
@@ -12,7 +12,7 @@
             <Access>Public</Access>
             <ProtoCompile>True</ProtoCompile>
             <CompileOutputs>True</CompileOutputs>
-            <OutputDir>obj\Debug\net7.0\</OutputDir>
+            <OutputDir>obj\Debug\net9.0\</OutputDir>
             <Generator>MSBuild:Compile</Generator>
         </Protobuf>
         <Protobuf Include="splog\splog.proto">
@@ -20,7 +20,7 @@
             <Access>Public</Access>
             <ProtoCompile>True</ProtoCompile>
             <CompileOutputs>True</CompileOutputs>
-            <OutputDir>obj\Debug\net7.0\</OutputDir>
+            <OutputDir>obj\Debug\net9.0\</OutputDir>
             <Generator>MSBuild:Compile</Generator>
         </Protobuf>
         <Protobuf Include="sppubsub\sppubsub.proto">
@@ -28,7 +28,7 @@
             <Access>Public</Access>
             <ProtoCompile>True</ProtoCompile>
             <CompileOutputs>True</CompileOutputs>
-            <OutputDir>obj\Debug\net7.0\</OutputDir>
+            <OutputDir>obj\Debug\net9.0\</OutputDir>
             <Generator>MSBuild:Compile</Generator>
         </Protobuf>
         <Protobuf Include="spworkflow\workflow.proto">
@@ -36,7 +36,7 @@
           <Access>Public</Access>
           <ProtoCompile>True</ProtoCompile>
           <CompileOutputs>True</CompileOutputs>
-          <OutputDir>obj\Debug\net7.0\</OutputDir>
+          <OutputDir>obj\Debug\net9.0\</OutputDir>
           <Generator>MSBuild:Compile</Generator>
         </Protobuf>
     </ItemGroup>

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using FASTER.core;
+
 namespace TwoPhaseCommit;
 
 public class RowRecord
@@ -46,7 +48,7 @@ public class RowRecord
 
     private bool CanWait(long waiter)
     {
-        return holders.All(x => x > waiter);
+        return holders.All(x => x > waiter) && waiters.All(x => x.Item1 > waiter);
     }
 
     private bool TryGrantLock(long txnId, LockMode requestedLock)
@@ -75,13 +77,13 @@ public class RowRecord
         Debug.Assert(requestedLock != LockMode.NONE);
         lock (this)
         {
-            if (TryGrantLock(txnId, requestedLock))
+            if (waiters.Count == 0 && TryGrantLock(txnId, requestedLock))
                 return ValueTask.FromResult(true);
             
             if (CanWait(txnId))
             {
-                var tcs = new TaskCompletionSource<bool>();
-                waiters.Enqueue((txnId, requestedLock, new TaskCompletionSource<bool>()));
+                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                waiters.Enqueue((txnId, requestedLock, tcs));
                 return new ValueTask<bool>(tcs.Task);
             }
             return ValueTask.FromResult(false);
@@ -100,7 +102,7 @@ public class RowRecord
             Debug.Assert(mode == LockMode.EXCLUSIVE);
             Remove(txnId);
             mode = LockMode.NONE;
-            while (waiters.TryDequeue(out var waiter))
+            while (waiters.TryPeek(out var waiter))
             {
                 if (!TryGrantLock(waiter.Item1, waiter.Item2)) break;
                 waiters.Dequeue();
@@ -122,7 +124,7 @@ public class RowRecord
             Remove(txnId);
             if (--numSharedHolders == 0)
                 mode = LockMode.NONE;
-            while (waiters.TryDequeue(out var waiter))
+            while (waiters.TryPeek(out var waiter))
             {
                 if (!TryGrantLock(waiter.Item1, waiter.Item2)) break;
                 waiters.Dequeue();

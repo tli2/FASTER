@@ -15,16 +15,17 @@ public class TransactionContext
         undoActions.Clear();
         txnId = transactionId;
         prepared = false;
+        twoPC = false;
         return this;
     }
 
     public bool Prepared() => prepared;
 
-    public bool MarkPrepared() => prepared = true;
+    public void MarkPrepared() => prepared = true;
     
     public bool TwoPC() => twoPC;
     
-    public bool MarkTwoPC() => twoPC = true;
+    public void MarkTwoPC() => twoPC = true;
 
     public long Id() => txnId;
 

@@ -12,6 +12,8 @@ public static class TpccConstants
     public const int NUM_ITEMS = 100000;
     public const int NUM_CUSTOMERS_PER_DISTRICT = 3000;
     public const int NUM_DISTRICTS_PER_WAREHOUSE = 10;
+    public const int TXN_MAX_RETRY = 10;
+
 
     // NURand constants for specific fields
     private const int A_C_LAST = 255;
@@ -24,6 +26,7 @@ public static class TpccConstants
     private static readonly int C_C_LAST = new Random().Next(0, A_C_LAST + 1);
     private static readonly int C_C_ID = new Random().Next(0, A_C_ID + 1);
     private static readonly int C_OL_I_ID = new Random().Next(0, A_OL_I_ID + 1);
+    
 
     // According to TPC-C standard
     public static int NonUniformRandom(int A, int x, int y, int C, Random rand)

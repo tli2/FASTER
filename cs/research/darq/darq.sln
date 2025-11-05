@@ -34,6 +34,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TwoPhaseCommit", "TwoPhaseC
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OnlineMarketplace", "OnlineMarketplace\OnlineMarketplace.csproj", "{61023522-49AD-48C9-931A-32E547EAF266}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TwoPhaseCommit.Tests", "TwoPhaseCommit.Tests\TwoPhaseCommit.Tests.csproj", "{7E38C152-3627-455C-B05C-9DDE40003358}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -100,6 +102,10 @@ Global
 		{61023522-49AD-48C9-931A-32E547EAF266}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{61023522-49AD-48C9-931A-32E547EAF266}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{61023522-49AD-48C9-931A-32E547EAF266}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7E38C152-3627-455C-B05C-9DDE40003358}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7E38C152-3627-455C-B05C-9DDE40003358}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7E38C152-3627-455C-B05C-9DDE40003358}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7E38C152-3627-455C-B05C-9DDE40003358}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{27CF2EE1-3FB1-4C0A-9354-F58EB2961157} = {89B55DF7-9C0E-4686-BCB7-BBAE2707A17A}
