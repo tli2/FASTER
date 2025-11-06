@@ -384,7 +384,17 @@ public struct OrderLineKey : IEquatable<OrderLineKey>, IComparable<OrderLineKey>
     
     public int CompareTo(OrderLineKey other)
     {
-        return word.CompareTo(other.word);
+        // dictionary order: olWId, olDId, olOId, olNumber
+        var wIdComparison = olWId.CompareTo(other.olWId);
+        if (wIdComparison != 0) return wIdComparison;
+
+        var dIdComparison = olDId.CompareTo(other.olDId);
+        if (dIdComparison != 0) return dIdComparison;
+
+        var oIdComparison = olOId.CompareTo(other.olOId);
+        if (oIdComparison != 0) return oIdComparison;
+
+        return olNumber.CompareTo(other.olNumber);
     }
 }
 

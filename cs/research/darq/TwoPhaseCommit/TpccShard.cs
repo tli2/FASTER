@@ -31,7 +31,7 @@ public class TpccShard : StateObject
 
     // Item table is replicated across all shards
     public ConcurrentDictionary<int, Item> items = new();
-    public ConcurrentDictionary<byte, Warehouse> warehouses;
+    public ConcurrentDictionary<byte, Warehouse> warehouses = new();
     public ConcurrentDictionary<DistrictKey, District> districts = new();
     public ConcurrentDictionary<CustomerKey, Customer> customers = new();
     public ConcurrentSortedDictionary<OrderKey, Order> orders = new();
@@ -361,6 +361,11 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             oOLCnt = request.Items.Count,
             oAllLocal = 0,
         };
+        
+        // Should always succeed synchronously as it is a new row
+        var acquireResult = txn.TryAccessWrite(newOrder);
+        Debug.Assert(acquireResult.IsCompleted && acquireResult.Result);
+        
         await EnqueueWrapper(LogRecords.CreateInsertOrderRecord(txn.Id(), newOrder));
         txn.AddUndoAction(() => bg.so.orders.TryRemove(newOrderKey));
         bg.so.orders.TryAdd(new OrderKey((byte)request.WId, (byte)request.DId, request.CId, oId), newOrder);
@@ -402,6 +407,9 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
                 olQuantity = ol.Quantity,
                 olAmount = ol.Quantity * item.iPrice
             };
+            acquireResult = txn.TryAccessWrite(newOrderLine);
+            Debug.Assert(acquireResult.IsCompleted && acquireResult.Result);
+
             await EnqueueWrapper(
                 LogRecords.CreateInsertOrderLineRecord(txn.Id(), newOrderLine));
             txn.AddUndoAction(() => bg.so.orderLines.TryRemove(olKey));
@@ -616,7 +624,17 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         var txn = bg.so.StartTransaction(transactionId);
 
         var scanKey = new OrderKey((byte)request.WId, (byte)request.DId, request.CId, int.MaxValue);
-        var max = bg.so.orders.StartingWith(scanKey, true).First().Value;
+        var max = bg.so.orders.StartingWith(scanKey, true).Select(e => e.Value).FirstOrDefault((Order) null);
+        // If null, the order table is empty. Otherwise, the customer has no orders 
+        if (max == null || max.oCId != request.CId || max.oDId != request.DId || max.oWId != request.WId)
+            return new OrderStatusResponse
+            {
+                Success = true,
+                CId = request.CId,
+                OId = -1,
+                WId = -1
+            };
+        
         if (!await TryAccessReadWrapper(txn, max))
         {
             return new OrderStatusResponse

@@ -24,7 +24,7 @@ namespace FASTER.core
 
         readonly BlittableAllocator<Empty, byte> allocator;
         readonly LightEpoch epoch;
-        readonly ILogCommitManager logCommitManager;
+        public readonly ILogCommitManager logCommitManager;
         readonly bool disposeLogCommitManager;
         readonly GetMemory getMemory;
         readonly int headerSize;
