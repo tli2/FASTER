@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -27,37 +27,34 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\..\src\devices\AzureStorageDevice\FASTER.devices.AzureStorageDevice.csproj" />
-      <ProjectReference Include="..\..\libdpr\src\FASTER.libdpr\FASTER.libdpr.csproj" />
-      <ProjectReference Include="..\ExampleServices\ExampleServices.csproj" />
-      <ProjectReference Include="..\FASTER.darq\FASTER.darq.csproj" />
+        <None Update="helm\reservation-deployments.tpl">
+            <DependentUpon>templates</DependentUpon>
+        </None>
+        <None Update="helm\reservation-services.tpl">
+            <DependentUpon>templates</DependentUpon>
+        </None>
+        <None Update="helm\workflow-deployment.tpl">
+            <DependentUpon>templates</DependentUpon>
+        </None>
+        <None Update="helm\workflow-service.tpl">
+            <DependentUpon>templates</DependentUpon>
+        </None>
+        <None Update="helm\env-config.tpl">
+            <DependentUpon>templates</DependentUpon>
+        </None>
+        <None Update="helm\dprfinder-deployment.yaml">
+            <DependentUpon>templates</DependentUpon>
+        </None>
+        <None Update="helm\dprfinder-service.yaml">
+            <DependentUpon>templates</DependentUpon>
+        </None>
+        <None Update="helm\client-jobs.tpl">
+            <DependentUpon>templates</DependentUpon>
+        </None>
     </ItemGroup>
 
     <ItemGroup>
-      <None Update="helm\reservation-deployments.tpl">
-        <DependentUpon>templates</DependentUpon>
-      </None>
-      <None Update="helm\reservation-services.tpl">
-        <DependentUpon>templates</DependentUpon>
-      </None>
-      <None Update="helm\workflow-deployment.tpl">
-        <DependentUpon>templates</DependentUpon>
-      </None>
-      <None Update="helm\workflow-service.tpl">
-        <DependentUpon>templates</DependentUpon>
-      </None>
-      <None Update="helm\env-config.tpl">
-        <DependentUpon>templates</DependentUpon>
-      </None>
-      <None Update="helm\dprfinder-deployment.yaml">
-        <DependentUpon>templates</DependentUpon>
-      </None>
-      <None Update="helm\dprfinder-service.yaml">
-        <DependentUpon>templates</DependentUpon>
-      </None>
-      <None Update="helm\client-jobs.tpl">
-        <DependentUpon>templates</DependentUpon>
-      </None>
+      <ProjectReference Include="..\ExampleServices\ExampleServices.csproj" />
     </ItemGroup>
 
 </Project>

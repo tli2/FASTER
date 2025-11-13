@@ -96,7 +96,7 @@ public class WorkloadGenerator
                 long id;
                 do
                 {
-                    id = random.NextInt64(0xFFFFFFFFFFFF) / numClients + i;
+                    id = random.NextInt64(0x0FFFFFFFFFFF) / numClients + i;
                 } while (!uniqueIds.TryAdd(id, 0));
                 builder.Append(id);
                 
@@ -106,7 +106,7 @@ public class WorkloadGenerator
                     // Reservation Id -- must ensure uniqueness
                     do
                     {
-                        id = random.NextInt64(0xFFFFFFFFFFFF) / numClients + i;
+                        id = random.NextInt64(0x0FFFFFFFFFFF) / numClients + i;
                     } while (!uniqueIds.TryAdd(id, 0));
 
                     builder.Append(id);

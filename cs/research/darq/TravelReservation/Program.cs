@@ -17,8 +17,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using dse.services;
 using FASTER.common;
+using Microsoft.Azure.Cosmos;
+using Temporalio.Activities;
+using Temporalio.Client;
+using Temporalio.Worker;
+using Temporalio.Workflows;
 
 namespace TravelReservation;
+
 public class Options
 {
     [Option('t', "type", Required = true,
@@ -28,7 +34,7 @@ public class Options
     [Option('w', "workload-trace", Required = false,
         HelpText = "Workload trace file to use")]
     public string WorkloadTrace { get; set; }
-    
+
     [Option('o', "output-file", Required = false,
         HelpText = "Name of file to output")]
     public string OutputFile { get; set; }
@@ -36,11 +42,11 @@ public class Options
     [Option('n', "name", Required = false,
         HelpText = "identifier of the service to launch")]
     public int WorkerName { get; set; }
-    
+
     [Option('s', "speculative", Required = false, Default = false,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
-    
+
     [Option('i', "issue-window", Required = false, Default = 128,
         HelpText = "how many requests can be concurrently in-flight")]
     public int IssueWindow { get; set; }
@@ -144,7 +150,7 @@ public class Program
         await WriteResults(options, environment, measurements);
     }
 
-    private static async Task WriteResults(Options options, IEnvironment environment,ConcurrentBag<long> measurements)
+    private static async Task WriteResults(Options options, IEnvironment environment, ConcurrentBag<long> measurements)
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
@@ -158,7 +164,7 @@ public class Program
     public static async Task LaunchOrchestratorService(Options options, IEnvironment environment)
     {
         var builder = WebApplication.CreateBuilder();
-        
+
         builder.Logging.AddConsole();
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(serverOptions =>
@@ -167,14 +173,14 @@ public class Program
                 listenOptions => { listenOptions.Protocols = HttpProtocols.Http2; });
             serverOptions.Limits.MinRequestBodyDataRate = null;
         });
-        
+
         var checkpointManager = environment.GetOrchestratorCheckpointManager(options);
         builder.Services.AddSingleton(new DarqSettings
         {
             MyDpr = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             LogDevice = environment.GetOrchestratorDevice(options),
-            LogCommitManager = checkpointManager, 
+            LogCommitManager = checkpointManager,
             PageSize = 1L << 22,
             MemorySize = 1L << 30,
             SegmentSize = 1L << 30,
@@ -191,7 +197,13 @@ public class Program
         var stepRequestPool = new SimpleObjectPool<StepRequest>(() => new StepRequest(), maxObjects: 1024);
 
         var workflowFactories = new Dictionary<int, OrchestratorBackgroundProcessingService.WorkflowFactory>
-            { { 0, (input, logger) => new DarqReservationWorkflowStateMachine(input, stepRequestPool, connectionPool, environment, options.Speculative, logger) } };
+        {
+            {
+                0,
+                (input, logger) => new DarqReservationWorkflowStateMachine(input, stepRequestPool, connectionPool,
+                    environment, options.Speculative, logger)
+            }
+        };
         builder.Services.AddSingleton(new OrchestartorBackgroundProcessingServiceSettings
         {
             workflowFactories = workflowFactories,
@@ -200,13 +212,13 @@ public class Program
         builder.Services.AddSingleton<OrchestratorBackgroundProcessingService>();
         builder.Services.AddSingleton<WorkflowOrchestratorService>();
         builder.Services.AddSingleton<DprServerInterceptor<WorkflowOrchestratorService>>();
-        
+
         builder.Services.AddHostedService<OrchestratorBackgroundProcessingService>(provider =>
             provider.GetRequiredService<OrchestratorBackgroundProcessingService>());
         builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
         builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<WorkflowOrchestratorService>>(); });
         var app = builder.Build();
-        
+
         app.MapGrpcService<WorkflowOrchestratorService>();
         app.MapGet("/",
             () =>
@@ -232,12 +244,12 @@ public class Program
         builder.Services.AddSingleton<GraphDprFinderBackend>();
         builder.Services.AddSingleton<DprFinderGrpcBackgroundService>();
         builder.Services.AddSingleton<DprFinderGrpcService>();
-        
+
         builder.Services.AddGrpc();
         builder.Services.AddHostedService<DprFinderGrpcBackgroundService>(provider =>
             provider.GetRequiredService<DprFinderGrpcBackgroundService>());
         var app = builder.Build();
-        
+
         app.MapGrpcService<DprFinderGrpcService>();
         app.MapGet("/",
             () =>
@@ -284,17 +296,17 @@ public class Program
             file = options.WorkloadTrace
         });
         builder.Services.AddSingleton<FasterKvReservationBackgroundService>();
-        
+
         builder.Services.AddSingleton<FasterKvReservationService>();
         builder.Services.AddSingleton<StateObject>(sp => sp.GetService<FasterKvReservationStateObject>());
         builder.Services.AddSingleton<DprServerInterceptor<FasterKvReservationService>>();
-        
+
         builder.Services.AddGrpc(opt => { opt.Interceptors.Add<DprServerInterceptor<FasterKvReservationService>>(); });
         builder.Services.AddHostedService<FasterKvReservationBackgroundService>(provider =>
             provider.GetRequiredService<FasterKvReservationBackgroundService>());
         builder.Services.AddHostedService<StateObjectRefreshBackgroundService>();
         var app = builder.Build();
-        
+
         app.MapGrpcService<FasterKvReservationService>();
         app.MapGet("/",
             () =>

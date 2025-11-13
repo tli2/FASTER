@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: client
+spec:
+  template:
+    spec:
+      serviceAccountName: deployment-watcher
+      initContainers:
+        - name: wait-all
+          image: bitnami/kubectl
+          command: [ "sh", "-c" ]
+          args:
+            - >
+              while true; do
+                # Check if all deployments have at least one ready replica
+                notReadyCount=$(kubectl get deployments -n dse | grep -c "0/1")
+                if [ "$notReadyCount" -eq 0 ]; then
+                  echo "All deployments are ready.";
+                  break;
+                else
+                  echo "Waiting for all deployments to be ready. $notReadyCount deployments are not ready.";
+                  sleep 1;
+                fi;
+              done;
+      containers:
+        - command:
+            - "./TravelReservationTemporal"
+          args:
+            - "-t"
+            - "client"
+            - "-w"
+            - "/app/{{ $.Values.experiment }}/workloads/{{ $.Values.workload }}"
+            - "-n"
+            - "{{ .Values.num_services }}"
+            - "-o"
+            - "{{ $.Values.workload }}-result.txt"
+            - "-i"
+            - "{{ $.Values.window }}"
+          workingDir: "/app/TravelReservationTemporal/"
+          image: tianyuli96/faster:latest
+          name: client
+          ports:
+            - containerPort: 15721
+          envFrom:
+            - configMapRef:
+                name: env-config
+      restartPolicy: Never

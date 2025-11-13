@@ -1,0 +1,35 @@
+{{- range until .Values.num_workers }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    service: "worker"
+  name: "worker{{ . }}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: "worker"
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        service: "worker"
+    spec:
+      serviceAccountName: deployment-watcher
+      containers:
+        - command:
+            - "./TravelReservationTemporal"
+          args: 
+            - "-t"
+            - "worker"
+          image: tianyuli96/faster:latest
+          name: "worker{{ . }}"
+          envFrom:
+            - configMapRef:
+                name: env-config
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always
+---
+{{- end }}

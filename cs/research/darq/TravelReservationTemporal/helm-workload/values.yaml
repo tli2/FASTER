@@ -1,0 +1,9 @@
+conn_string: foo
+results_conn_string: foo
+temporal_conn_string: foo
+cosmos_conn_string: foo
+experiment: TravelReservation-temporal
+workload: workload-tiny
+window: 32
+num_workers: 1
+num_services: 1
