@@ -251,14 +251,15 @@ public class Program
         var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
 
         var client = await TemporalClient.ConnectAsync(new("temporal-frontend.temporal.svc.cluster.local:7233"));
+        var activities = new TemporalReservationActivities(cosmosClient.GetContainer("travel", "offering"));
 
         var workerOptions = new TemporalWorkerOptions("travel-task-queue")
         {
             Workflows = { WorkflowDefinition.Create<TemporalReservationWorkflow>() },
             Activities =
             {
-                ActivityDefinition.Create(() =>
-                    new TemporalReservationActivities(cosmosClient.GetContainer("travel", "offering")))
+                ActivityDefinition.Create(activities.MakeReservationAsync),
+                ActivityDefinition.Create(activities.CancelReservationAsync)
             }
         };
 
