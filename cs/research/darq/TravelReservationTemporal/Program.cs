@@ -167,7 +167,7 @@ public class Program
         Console.WriteLine($"Loaded {timedRequests.Count} requests.");
         
         Console.WriteLine("Connecting to Temporal...");
-        var client = await TemporalClient.ConnectAsync(new("TEMPORAL_CONN_STRING"));
+        var client = await TemporalClient.ConnectAsync(new("temporal-frontend.temporal.svc.cluster.local:7233"));
 
         var measurements = new ConcurrentBag<long>();
         var rateLimiter = new SemaphoreSlim(options.IssueWindow, options.IssueWindow);

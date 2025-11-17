@@ -4,7 +4,5 @@ metadata:
   name: env-config
   namespace: dse
 data:
-  AZURE_CONN_STRING: "{{ .Values.conn_string }}"
   AZURE_RESULTS_CONN_STRING: "{{ .Values.results_conn_string }}"
   COSMOS_CONN_STRING: "{{ .Values.cosmos_conn_string }}"
-  TEMPORAL_CONN_STRING: "{{ .Values.temporal_conn_string }}"
