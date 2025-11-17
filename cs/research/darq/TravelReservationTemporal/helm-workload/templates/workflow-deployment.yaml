@@ -1,4 +1,4 @@
-{{- range until .Values.num_workers }}
+{{- range until (.Values.num_workers | int) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
