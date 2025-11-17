@@ -248,9 +248,9 @@ public class Program
 
     private static async Task LaunchTemporalWorker(Options options)
     {
-        var cosmosClient = new CosmosClient("AccountEndpoint=...;", "Key=...;");
+        var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
 
-        var client = await TemporalClient.ConnectAsync(new("localhost:7233"));
+        var client = await TemporalClient.ConnectAsync(new("temporal-frontend.temporal.svc.cluster.local:7233"));
 
         var workerOptions = new TemporalWorkerOptions("travel-task-queue")
         {
