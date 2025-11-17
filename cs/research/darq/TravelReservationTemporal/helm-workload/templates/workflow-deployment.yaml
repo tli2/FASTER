@@ -19,7 +19,7 @@ spec:
       serviceAccountName: deployment-watcher
       containers:
         - command:
-            - "./TravelReservationTemporal"
+            - "/app/TravelReservationTemporal"
           args: 
             - "-t"
             - "worker"
