@@ -19,11 +19,12 @@ spec:
       serviceAccountName: deployment-watcher
       containers:
         - command:
-            - "/app/TravelReservationTemporal"
+            - "./TravelReservationTemporal"
           args: 
             - "-t"
             - "worker"
           image: tianyuli96/faster:latest
+          workingDir: "/app/TravelReservationTemporal/"
           name: "worker{{ . }}"
           envFrom:
             - configMapRef:
