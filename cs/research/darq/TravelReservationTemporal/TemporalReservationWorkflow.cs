@@ -54,6 +54,7 @@ public class ReservationDocument
 [Workflow]
 public class TemporalReservationWorkflow
 {
+    [WorkflowRun]
     public async Task<bool> RunAsync(string workflowContent)
     {
         var toExecute = new List<ReservationRequest>();
