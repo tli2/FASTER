@@ -42,12 +42,8 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        var cosmosOptions = new CosmosClientOptions { AllowBulkExecution = true };
-        var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"),
-            cosmosOptions);
-        var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
         
-        var runGuid = await GetOrCreateRunGuid(container);
+        var runGuid = await GetOrCreateRunGuid();
         switch (options.Type.Trim())
         {
             case "client":
@@ -57,7 +53,7 @@ public class Program
                 for (var i = 0; i < options.NumServices; i++)
                 {
                     var i1 = i;
-                    tasks.Add(Task.Run(() => LoadCosmosDB(container, $"{options.WorkloadTrace}-service-{i1}.csv")));
+                    tasks.Add(Task.Run(() => LoadCosmosDB($"{options.WorkloadTrace}-service-{i1}.csv")));
                 }
 
                 await Task.WhenAll(tasks);
@@ -65,15 +61,18 @@ public class Program
                 break;
             case "worker":
                 Console.WriteLine("Starting worker");
-                await LaunchTemporalWorker(options, runGuid, container);
+                await LaunchTemporalWorker(options, runGuid);
                 break;
             default:
                 throw new NotImplementedException();
         }
     }
     
-    private static async Task<string> GetOrCreateRunGuid(Container container)
+    private static async Task<string> GetOrCreateRunGuid()
     {
+        using var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
+        var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
+        
         var candidateId = Guid.NewGuid().ToString();
         
         var configDoc = new BenchmarkRunConfigDocument
@@ -119,63 +118,61 @@ public class Program
         await blobClient.UploadAsync(memoryStream, overwrite: true);
     }
 
-    private static async Task LoadCosmosDB(Container container, string filename)
+    private static async Task LoadCosmosDB(string filename)
     {
+        var cosmosOptions = new CosmosClientOptions { AllowBulkExecution = true };
+        using var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"),
+            cosmosOptions);
+        var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
+        
         Console.WriteLine($"Loading data from {filename}");
 
-        var semaphore = new SemaphoreSlim(32, 32);
+        var semaphore = new SemaphoreSlim(64, 64);
 
         using var reader = new StreamReader(filename);
         string? line;
         var count = 0;
-
         while ((line = await reader.ReadLineAsync()) != null)
         {
             await semaphore.WaitAsync();
 
             var currentLine = line;
 
-            Task.Run(async () =>
+            var parts = currentLine.Split(',');
+            var offeringId = long.Parse(parts[0]);
+            var entityId = long.Parse(parts[1]);
+            var price = int.Parse(parts[2]);
+            var initialCount = int.Parse(parts[3]);
+
+            var doc = new OfferingDocument
             {
-                try
-                {
-                    var parts = currentLine.Split(',');
-                    var offeringId = long.Parse(parts[0]);
-                    var entityId = long.Parse(parts[1]);
-                    var price = int.Parse(parts[2]);
-                    var initialCount = int.Parse(parts[3]);
+                PartitionId = offeringId,
+                Id = $"offering-{offeringId}", // Construct string ID
+                EntityId = entityId,
+                Price = price,
+                RemainingCount = initialCount
+            };
+            
+            container.UpsertItemAsync(doc, new PartitionKey(offeringId)).ContinueWith(t =>
+            {
+                
+                if (!t.IsCompletedSuccessfully)
+                    Console.WriteLine($"Error processing line '{currentLine}': {t.Exception?.Message}");
+                semaphore.Release();
+                count++;
 
-                    var doc = new OfferingDocument
-                    {
-                        PartitionId = offeringId,
-                        Id = $"offering-{offeringId}", // Construct string ID
-                        EntityId = entityId,
-                        Price = price,
-                        RemainingCount = initialCount
-                    };
-                    await container.UpsertItemAsync(doc, new PartitionKey(offeringId));
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"\nError processing line '{currentLine}': {ex.Message}");
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            });
+            }); 
 
-            count++;
             if (count % 1000 == 0)
             {
-                Console.Write($"\rLoaded {count} items...");
+                Console.Write($"Loaded {count} items...\n");
             }
         }
 
-        while (semaphore.CurrentCount > 0)
+        while (semaphore.CurrentCount < 32)
             await Task.Delay(10);
 
-        Console.WriteLine($"\nData loading complete. Total items: {count}");
+        Console.WriteLine($"Data loading complete. Total items: {count}\n");
     }
 
     private static async Task LaunchTemporalDriver(Options options, string runGuid)
@@ -273,12 +270,15 @@ public class Program
         await client.GetDatabase("dsebench").CreateContainerIfNotExistsAsync(
             id: "offering", 
             partitionKeyPath: "/partitionId", 
-            throughput: 1000
+            throughput: 100000
         );
     }
 
-    private static async Task LaunchTemporalWorker(Options options, string runGuid, Container container)
+    private static async Task LaunchTemporalWorker(Options options, string runGuid)
     {
+        var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
+        var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
+        
         var client = await TemporalClient.ConnectAsync(new("temporal-frontend.temporal.svc.cluster.local:7233"));
         var activities = new TemporalReservationActivities(container);
 
