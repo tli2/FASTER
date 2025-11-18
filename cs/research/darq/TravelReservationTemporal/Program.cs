@@ -159,14 +159,11 @@ public class Program
                 if (!t.IsCompletedSuccessfully)
                     Console.WriteLine($"Error processing line '{currentLine}': {t.Exception?.Message}");
                 semaphore.Release();
-                count++;
-
+                Interlocked.Increment(ref count);
+                if (count % 1000 == 0)
+                    Console.Write($"Loaded {count} items...\n");
             }); 
 
-            if (count % 1000 == 0)
-            {
-                Console.Write($"Loaded {count} items...\n");
-            }
         }
 
         while (semaphore.CurrentCount < 32)
@@ -180,7 +177,7 @@ public class Program
         Console.WriteLine("Parsing workload file...");
         var timedRequests = new List<(long Timestamp, string WorkflowId, string Input)>();
 
-        foreach (var line in File.ReadLines(options.WorkloadTrace))
+        foreach (var line in File.ReadLines($"{options.WorkloadTrace}-client-0.csv"))
         {
             var args = line.Split(',');
             var timestamp = long.Parse(args[0]);
