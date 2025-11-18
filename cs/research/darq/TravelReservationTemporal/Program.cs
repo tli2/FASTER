@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using Azure.Storage.Blobs;
 using CommandLine;
 using Microsoft.Azure.Cosmos;
@@ -38,11 +39,15 @@ public class Program
     public static async Task Main(string[] args)
     {
         // GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
-
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-
+        var cosmosOptions = new CosmosClientOptions { AllowBulkExecution = true };
+        var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"),
+            cosmosOptions);
+        var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
+        
+        var runGuid = await GetOrCreateRunGuid(container);
         switch (options.Type.Trim())
         {
             case "client":
@@ -52,24 +57,49 @@ public class Program
                 for (var i = 0; i < options.NumServices; i++)
                 {
                     var i1 = i;
-                    var cosmosOptions = new CosmosClientOptions { AllowBulkExecution = true };
-                    var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"),
-                        cosmosOptions);
-                    tasks.Add(Task.Run(() => LoadCosmosDB(cosmosClient, $"{options.WorkloadTrace}-service-{i1}.csv")));
+                    tasks.Add(Task.Run(() => LoadCosmosDB(container, $"{options.WorkloadTrace}-service-{i1}.csv")));
                 }
 
                 await Task.WhenAll(tasks);
-                await LaunchTemporalDriver(options);
+                await LaunchTemporalDriver(options, runGuid); 
                 break;
             case "worker":
                 Console.WriteLine("Starting worker");
-                await LaunchTemporalWorker(options);
+                await LaunchTemporalWorker(options, runGuid, container);
                 break;
             default:
                 throw new NotImplementedException();
         }
     }
+    
+    private static async Task<string> GetOrCreateRunGuid(Container container)
+    {
+        var candidateId = Guid.NewGuid().ToString();
+        
+        var configDoc = new BenchmarkRunConfigDocument
+        {
+            PartitionId = 0,
+            Id = "config",
+            RunGuid = candidateId
+        };
 
+        try
+        {
+            await container.CreateItemAsync(configDoc, new PartitionKey(configDoc.PartitionId));
+            return candidateId;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            // 3b. FAILURE: Someone beat us to it. 
+            // The document exists, so we must READ what the winner wrote.
+            Console.WriteLine("[Init] Run ID already exists. Fetching it...");
+
+            var existingDoc = await container.ReadItemAsync<BenchmarkRunConfigDocument>(
+                configDoc.Id,
+                new PartitionKey(configDoc.PartitionId));
+            return existingDoc.Resource.RunGuid;
+        }
+    }
 
     private static async Task WriteResults(Options options, ConcurrentBag<long> measurements)
     {
@@ -89,9 +119,8 @@ public class Program
         await blobClient.UploadAsync(memoryStream, overwrite: true);
     }
 
-    private static async Task LoadCosmosDB(CosmosClient client, string filename)
+    private static async Task LoadCosmosDB(Container container, string filename)
     {
-        var container = client.GetContainer("dsebench", "offerings");
         Console.WriteLine($"Loading data from {filename}");
 
         var semaphore = new SemaphoreSlim(32, 32);
@@ -149,7 +178,7 @@ public class Program
         Console.WriteLine($"\nData loading complete. Total items: {count}");
     }
 
-    private static async Task LaunchTemporalDriver(Options options)
+    private static async Task LaunchTemporalDriver(Options options, string runGuid)
     {
         Console.WriteLine("Parsing workload file...");
         var timedRequests = new List<(long Timestamp, string WorkflowId, string Input)>();
@@ -188,7 +217,7 @@ public class Program
             {
                 try
                 {
-                    var wfOptions = new WorkflowOptions(id: request.WorkflowId, taskQueue: "travel-task-queue");
+                    var wfOptions = new WorkflowOptions(id: $"${runGuid}:{request.WorkflowId}", taskQueue: $"travel-task-queue{runGuid}");
                     
                     var handle = await client.StartWorkflowAsync(
                         (TemporalReservationWorkflow wf) => wf.RunAsync(request.Input),
@@ -220,11 +249,13 @@ public class Program
         Console.WriteLine("Benchmark finished, cleaning up database...");
         
         await WriteResults(options, measurements);
+        await CleanupDatabaseAsync();
     }
     
-    private static async Task CleanupDatabaseAsync(CosmosClient client)
+    private static async Task CleanupDatabaseAsync()
     {
         // 1. Get reference to the container
+        var client = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
         var container = client.GetDatabase("dsebench").GetContainer("offerings");
 
         try
@@ -241,19 +272,17 @@ public class Program
         
         await client.GetDatabase("dsebench").CreateContainerIfNotExistsAsync(
             id: "offering", 
-            partitionKeyPath: "/offeringId", 
+            partitionKeyPath: "/partitionId", 
             throughput: 1000
         );
     }
 
-    private static async Task LaunchTemporalWorker(Options options)
+    private static async Task LaunchTemporalWorker(Options options, string runGuid, Container container)
     {
-        var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
-
         var client = await TemporalClient.ConnectAsync(new("temporal-frontend.temporal.svc.cluster.local:7233"));
-        var activities = new TemporalReservationActivities(cosmosClient.GetContainer("travel", "offering"));
+        var activities = new TemporalReservationActivities(container);
 
-        var workerOptions = new TemporalWorkerOptions("travel-task-queue")
+        var workerOptions = new TemporalWorkerOptions($"travel-task-queue{runGuid}")
         {
             Workflows = { WorkflowDefinition.Create<TemporalReservationWorkflow>() },
             Activities =

@@ -17,7 +17,7 @@ namespace TravelReservation;
 public class OfferingDocument
 {
     [JsonProperty("partitionId")]
-    public long PartitionId { get; set; } // e.g., "offering-123"
+    public long PartitionId { get; set; }
     
     [JsonProperty("id")]
     public string Id { get; set; } // e.g., "offering-123"
@@ -30,6 +30,18 @@ public class OfferingDocument
     
     [JsonProperty("remainingCount")]
     public int RemainingCount { get; set; }
+}
+
+public class BenchmarkRunConfigDocument
+{
+    [JsonProperty("partitionId")]
+    public long PartitionId { get; set; }
+    
+    [JsonProperty("id")]
+    public string Id { get; set; } 
+    
+    [JsonProperty("runGuid")]
+    public string RunGuid { get; set; }
 }
 
 // Represents a specific reservation made by a customer
