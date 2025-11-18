@@ -1,6 +1,7 @@
 results_conn_string: foo
 cosmos_conn_string: foo
-experiment: TravelReservation-temporal
+experiment: TravelReservation-latency
+output_filename: TravelReservation-latency-temporal
 workload: workload-tiny
 window: 32
 num_workers: 1
