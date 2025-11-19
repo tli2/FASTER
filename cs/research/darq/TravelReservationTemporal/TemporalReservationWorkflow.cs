@@ -48,7 +48,7 @@ public class BenchmarkRunConfigDocument
 public class ReservationDocument
 {
     [JsonProperty("partitionId")]
-    public long PartitionId { get; set; } // e.g., "offering-123"
+    public string PartitionId { get; set; } // e.g., "offering-123"
     
     [JsonProperty("id")]
     public string Id { get; set; } // This is our idempotency key, e.g., the reservationId
@@ -155,7 +155,7 @@ public class TemporalReservationActivities
 
             var reservationDoc = new ReservationDocument
             {
-                PartitionId = request.OfferingId,
+                PartitionId = $"{serviceId}-{request.OfferingId}",
                 Id = $"reservation-{serviceId}-{request.ReservationId}",
                 OfferingId = $"offering-{serviceId}-{request.OfferingId}",
                 CustomerId = request.CustomerId,

@@ -176,7 +176,7 @@ public class Program
             {
                 try
                 {
-                    await container.CreateItemAsync(doc, new PartitionKey(offeringId));
+                    await container.CreateItemAsync(doc, new PartitionKey($"{serviceId}-{offeringId}"));
                 }
                 catch (Exception ex)
                 {
