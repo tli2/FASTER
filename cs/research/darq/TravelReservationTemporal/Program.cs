@@ -43,7 +43,7 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        
+
         var runGuid = await GetOrCreateRunGuid();
         switch (options.Type.Trim())
         {
@@ -58,7 +58,7 @@ public class Program
                 }
 
                 await Task.WhenAll(tasks);
-                await LaunchTemporalDriver(options, runGuid); 
+                await LaunchTemporalDriver(options, runGuid);
                 break;
             case "worker":
                 Console.WriteLine("Starting worker");
@@ -68,7 +68,7 @@ public class Program
                 throw new NotImplementedException();
         }
     }
-    
+
     private static async Task<string> GetOrCreateRunGuid()
     {
         using var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
@@ -84,15 +84,16 @@ public class Program
         );
         indexingPolicy.IncludedPaths.Add(new IncludedPath { Path = "/partitionId/?" });
 
-        var containerProperties = new ContainerProperties("offerings", "/partitionId"); 
+        var containerProperties = new ContainerProperties("offerings", "/partitionId");
         containerProperties.IndexingPolicy = indexingPolicy;
-        
-        await cosmosClient.GetDatabase("dsebench").CreateContainerIfNotExistsAsync(containerProperties, throughput: 10000);
-        
+
+        await cosmosClient.GetDatabase("dsebench")
+            .CreateContainerIfNotExistsAsync(containerProperties, throughput: 10000);
+
         var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
-        
+
         var candidateId = Guid.NewGuid().ToString();
-        
+
         var configDoc = new BenchmarkRunConfigDocument
         {
             PartitionId = 0,
@@ -142,7 +143,7 @@ public class Program
         using var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"),
             cosmosOptions);
         var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
-        
+
         Console.WriteLine($"Loading data from {filename}");
 
         var semaphore = new SemaphoreSlim(64, 64);
@@ -170,18 +171,23 @@ public class Program
                 Price = price,
                 RemainingCount = initialCount
             };
-            
-            container.CreateItemAsync(doc, new PartitionKey(offeringId)).ContinueWith(t =>
+
+            Task.Run(async () =>
             {
-                
-                if (!t.IsCompletedSuccessfully)
-                    Console.WriteLine($"Error processing line '{currentLine}': {t.Exception?.Message}");
+                try
+                {
+                    await container.CreateItemAsync(doc, new PartitionKey(offeringId));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error processing line '{currentLine}': {ex.Message}");
+                }
+
                 Interlocked.Increment(ref count);
                 if (count % 1000 == 0)
                     Console.Write($"Loaded {count} items...\n");
                 semaphore.Release();
-            }); 
-
+            });
         }
 
         while (semaphore.CurrentCount < 32)
@@ -206,7 +212,7 @@ public class Program
         }
 
         Console.WriteLine($"Loaded {timedRequests.Count} requests.");
-        
+
         Console.WriteLine("Connecting to Temporal...");
         var client = await TemporalClient.ConnectAsync(new("temporal-frontend.temporal.svc.cluster.local:7233"));
 
@@ -221,7 +227,7 @@ public class Program
             var request = timedRequests[i];
 
             while (stopwatch.ElapsedMilliseconds <= request.Timestamp)
-                Thread.Yield();
+                await Task.Yield();
 
             await rateLimiter.WaitAsync();
 
@@ -229,8 +235,9 @@ public class Program
             {
                 try
                 {
-                    var wfOptions = new WorkflowOptions(id: $"${runGuid}:{request.WorkflowId}", taskQueue: $"travel-task-queue{runGuid}");
-                    
+                    var wfOptions = new WorkflowOptions(id: $"${runGuid}:{request.WorkflowId}",
+                        taskQueue: $"travel-task-queue{runGuid}");
+
                     var handle = await client.StartWorkflowAsync(
                         (TemporalReservationWorkflow wf) => wf.RunAsync(request.Input),
                         wfOptions);
@@ -259,11 +266,11 @@ public class Program
         }
 
         Console.WriteLine("Benchmark finished, cleaning up database...");
-        
+
         await WriteResults(options, measurements);
         await CleanupDatabaseAsync();
     }
-    
+
     private static async Task CleanupDatabaseAsync()
     {
         // 1. Get reference to the container
@@ -287,7 +294,7 @@ public class Program
     {
         var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
         var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
-        
+
         var client = await TemporalClient.ConnectAsync(new("temporal-frontend.temporal.svc.cluster.local:7233"));
         var activities = new TemporalReservationActivities(container);
 
