@@ -54,7 +54,7 @@ public class Program
                 for (var i = 0; i < options.NumServices; i++)
                 {
                     var i1 = i;
-                    tasks.Add(Task.Run(() => LoadCosmosDB($"{options.WorkloadTrace}-service-{i1}.csv")));
+                    tasks.Add(Task.Run(() => LoadCosmosDB($"{options.WorkloadTrace}-service-{i1}.csv", i1)));
                 }
 
                 await Task.WhenAll(tasks);
@@ -96,7 +96,7 @@ public class Program
 
         var configDoc = new BenchmarkRunConfigDocument
         {
-            PartitionId = 0,
+            PartitionId = "config",
             Id = "config",
             RunGuid = candidateId
         };
@@ -137,7 +137,7 @@ public class Program
         await blobClient.UploadAsync(memoryStream, overwrite: true);
     }
 
-    private static async Task LoadCosmosDB(string filename)
+    private static async Task LoadCosmosDB(string filename, int serviceId)
     {
         var cosmosOptions = new CosmosClientOptions { AllowBulkExecution = true };
         using var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"),
@@ -165,8 +165,8 @@ public class Program
 
             var doc = new OfferingDocument
             {
-                PartitionId = offeringId,
-                Id = $"offering-{offeringId}", // Construct string ID
+                PartitionId = $"{serviceId}-{offeringId}",
+                Id = $"offering-{serviceId}-{offeringId}", // Construct string ID
                 EntityId = entityId,
                 Price = price,
                 RemainingCount = initialCount
@@ -190,7 +190,7 @@ public class Program
             });
         }
 
-        while (semaphore.CurrentCount < 32)
+        while (semaphore.CurrentCount < 64)
             await Task.Delay(10);
 
         Console.WriteLine($"Data loading complete. Total items: {count}\n");
@@ -262,6 +262,7 @@ public class Program
         Console.WriteLine("Issuing complete. Waiting for pending workflows...");
         while (measurements.Count != timedRequests.Count)
         {
+            Console.WriteLine($"Waiting for {timedRequests.Count - measurements.Count} more results...");
             await Task.Delay(100);
         }
 

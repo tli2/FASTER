@@ -17,7 +17,7 @@ namespace TravelReservation;
 public class OfferingDocument
 {
     [JsonProperty("partitionId")]
-    public long PartitionId { get; set; }
+    public string PartitionId { get; set; }
     
     [JsonProperty("id")]
     public string Id { get; set; } // e.g., "offering-123"
@@ -35,7 +35,7 @@ public class OfferingDocument
 public class BenchmarkRunConfigDocument
 {
     [JsonProperty("partitionId")]
-    public long PartitionId { get; set; }
+    public string PartitionId { get; set; }
     
     [JsonProperty("id")]
     public string Id { get; set; } 
@@ -95,17 +95,19 @@ public class TemporalReservationWorkflow
         try
         {
             // 3. Execute each reservation sequentially
-            foreach (var request in toExecute)
+            for (var i = 0; i < toExecute.Count; i++)
             {
+                var request = toExecute[i];
+                var i1 = i;
                 var success = await Workflow.ExecuteActivityAsync(
-                    (TemporalReservationActivities acts) => acts.MakeReservationAsync(request), 
+                    (TemporalReservationActivities acts) => acts.MakeReservationAsync(request, i1),
                     activityOptions);
 
                 if (success)
                 {
                     // If successful, add the "undo" operation to the front of our compensation list.
                     compensations.Add(() => Workflow.ExecuteActivityAsync(
-                        (TemporalReservationActivities acts) => acts.CancelReservationAsync(request),
+                        (TemporalReservationActivities acts) => acts.CancelReservationAsync(request, i1),
                         activityOptions));
                 }
                 else
@@ -142,29 +144,29 @@ public class TemporalReservationActivities
     }
     
     [Activity]
-    public async Task<bool> MakeReservationAsync(ReservationRequest request)
+    public async Task<bool> MakeReservationAsync(ReservationRequest request, int serviceId)
     {
         try
         {
             ItemResponse<OfferingDocument> offeringResponse = await container.ReadItemAsync<OfferingDocument>(
-                id: $"offering-{request.OfferingId}",
-                partitionKey: new PartitionKey(request.OfferingId));
+                id: $"offering-{serviceId}-{request.OfferingId}",
+                partitionKey: new PartitionKey($"{serviceId}-{request.OfferingId}"));
             if (offeringResponse.Resource.RemainingCount < request.Count) return false;
 
             var reservationDoc = new ReservationDocument
             {
                 PartitionId = request.OfferingId,
-                Id = $"reservation-{request.ReservationId}",
-                OfferingId = $"offering-{request.OfferingId}",
+                Id = $"reservation-{serviceId}-{request.ReservationId}",
+                OfferingId = $"offering-{serviceId}-{request.OfferingId}",
                 CustomerId = request.CustomerId,
                 Count = request.Count,
             };
 
             // 2. Create the batch with a conditional patch
             var batchOptions = new TransactionalBatchPatchItemRequestOptions { IfMatchEtag = offeringResponse.ETag };
-            var batch = container.CreateTransactionalBatch(new PartitionKey(request.OfferingId))
+            var batch = container.CreateTransactionalBatch(new PartitionKey($"{serviceId}-{request.OfferingId}"))
                 .PatchItem(
-                    id: $"offering-{request.OfferingId}", 
+                    id: $"offering-{serviceId}-{request.OfferingId}", 
                     patchOperations: new[] { PatchOperation.Increment("/remainingCount", -request.Count) },
                     requestOptions: batchOptions)
                 .CreateItem(reservationDoc);
@@ -176,19 +178,19 @@ public class TemporalReservationActivities
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
             // Retry E-TAG failure
-            return await MakeReservationAsync(request);
+            return await MakeReservationAsync(request, serviceId);
         }
     }
 
     [Activity]
-    public async Task CancelReservationAsync(ReservationRequest request)
+    public async Task CancelReservationAsync(ReservationRequest request, int serviceId)
     {
         try
         {
             // 1. Read both the reservation to get its count, and the offering to get its ETag
             ItemResponse<OfferingDocument> offeringResponse = await container.ReadItemAsync<OfferingDocument>(
-                id: $"offering-{request.OfferingId}",
-                partitionKey: new PartitionKey(request.OfferingId));
+                id: $"offering-{serviceId}-{request.OfferingId}",
+                partitionKey: new PartitionKey($"{serviceId}-{request.OfferingId}"));
 
             // No need to read the reservation if we trust the input `request.Count`.
             // If we don't, we would read it here first.
@@ -197,10 +199,10 @@ public class TemporalReservationActivities
 
             // 2. Create a transactional batch with a conditional patch to increment inventory
             var batchOptions = new TransactionalBatchPatchItemRequestOptions { IfMatchEtag = offeringEtag };
-            var batch = container.CreateTransactionalBatch(new PartitionKey(request.OfferingId))
-                .DeleteItem(id:  $"reservation-{request.ReservationId}")
+            var batch = container.CreateTransactionalBatch(new PartitionKey($"{serviceId}-{request.OfferingId}"))
+                .DeleteItem(id:  $"reservation-{serviceId}-{request.OfferingId}")
                 .PatchItem(
-                    id: $"offering-{request.OfferingId}",
+                    id: $"offering-{serviceId}-{request.OfferingId}",
                     patchOperations: new[] { PatchOperation.Increment("/remainingCount", request.Count) },
                     requestOptions: batchOptions);
 
@@ -215,7 +217,7 @@ public class TemporalReservationActivities
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
-            await CancelReservationAsync(request);
+            await CancelReservationAsync(request, serviceId);
         }
     }
 }
