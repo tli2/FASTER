@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Security.Authentication.ExtendedProtection;
 using Azure.Storage.Blobs;
 using CommandLine;
 using Microsoft.Azure.Cosmos;
@@ -71,6 +72,23 @@ public class Program
     private static async Task<string> GetOrCreateRunGuid()
     {
         using var cosmosClient = new CosmosClient(Environment.GetEnvironmentVariable("COSMOS_CONN_STRING"));
+
+        var indexingPolicy = new IndexingPolicy
+        {
+            Automatic = true,
+            IndexingMode = IndexingMode.Consistent,
+        };
+        // NO need to index anything beyond the Id or PartitionId
+        indexingPolicy.ExcludedPaths.Add(
+            new ExcludedPath { Path = "/*" }
+        );
+        indexingPolicy.IncludedPaths.Add(new IncludedPath { Path = "/partitionId/?" });
+
+        var containerProperties = new ContainerProperties("offerings", "/partitionId"); 
+        containerProperties.IndexingPolicy = indexingPolicy;
+        
+        await cosmosClient.GetDatabase("dsebench").CreateContainerIfNotExistsAsync(containerProperties, throughput: 10000);
+        
         var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
         
         var candidateId = Guid.NewGuid().ToString();
@@ -153,7 +171,7 @@ public class Program
                 RemainingCount = initialCount
             };
             
-            container.UpsertItemAsync(doc, new PartitionKey(offeringId)).ContinueWith(t =>
+            container.CreateItemAsync(doc, new PartitionKey(offeringId)).ContinueWith(t =>
             {
                 
                 if (!t.IsCompletedSuccessfully)
@@ -263,12 +281,6 @@ public class Program
         {
             Console.WriteLine("Container did not exist, skipping delete.");
         }
-        
-        await client.GetDatabase("dsebench").CreateContainerIfNotExistsAsync(
-            id: "offering", 
-            partitionKeyPath: "/partitionId", 
-            throughput: 100000
-        );
     }
 
     private static async Task LaunchTemporalWorker(Options options, string runGuid)
