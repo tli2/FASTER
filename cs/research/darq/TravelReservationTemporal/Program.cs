@@ -50,14 +50,9 @@ public class Program
             case "client":
                 Console.WriteLine("Starting client");
 
-                var tasks = new List<Task>();
                 for (var i = 0; i < options.NumServices; i++)
-                {
-                    var i1 = i;
-                    tasks.Add(Task.Run(() => LoadCosmosDB($"{options.WorkloadTrace}-service-{i1}.csv", i1)));
-                }
+                    await LoadCosmosDB($"{options.WorkloadTrace}-service-{i}.csv", i);
 
-                await Task.WhenAll(tasks);
                 await LaunchTemporalDriver(options, runGuid);
                 break;
             case "worker":

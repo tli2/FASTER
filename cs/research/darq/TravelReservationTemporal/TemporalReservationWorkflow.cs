@@ -180,6 +180,11 @@ public class TemporalReservationActivities
             // Retry E-TAG failure
             return await MakeReservationAsync(request, serviceId);
         }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            // This means we are simply retrying a successful reservation
+            return true;
+        }
     }
 
     [Activity]
@@ -205,18 +210,11 @@ public class TemporalReservationActivities
                     id: $"offering-{serviceId}-{request.OfferingId}",
                     patchOperations: new[] { PatchOperation.Increment("/remainingCount", request.Count) },
                     requestOptions: batchOptions);
-
-            using var batchResponse = await batch.ExecuteAsync();
-
-            if (!batchResponse.IsSuccessStatusCode)
-            {
-                // This will fail if the reservation doesn't exist. We can check the sub-status code
-                // from the response if we need to distinguish that from other failures.
-                throw new InvalidOperationException("Failed to cancel reservation, it may not exist or the offering was modified.");
-            }
+            await batch.ExecuteAsync();
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
+            // Retry E-TAG failure
             await CancelReservationAsync(request, serviceId);
         }
     }
