@@ -176,10 +176,10 @@ public class Program
                 
                 if (!t.IsCompletedSuccessfully)
                     Console.WriteLine($"Error processing line '{currentLine}': {t.Exception?.Message}");
-                semaphore.Release();
                 Interlocked.Increment(ref count);
                 if (count % 1000 == 0)
                     Console.Write($"Loaded {count} items...\n");
+                semaphore.Release();
             }); 
 
         }

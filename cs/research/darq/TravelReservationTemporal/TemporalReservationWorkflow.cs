@@ -79,7 +79,6 @@ public class TemporalReservationWorkflow
                 OfferingId = long.Parse(split[i + 1]),
                 CustomerId = long.Parse(split[i + 2]),
                 Count = int.Parse(split[i + 3]),
-                PartitionId = i / 4
             });
         }
 
@@ -90,8 +89,6 @@ public class TemporalReservationWorkflow
             RetryPolicy = new()
             {
                 MaximumAttempts = 10,
-                // Do not retry on ApplicationFailureException that we throw for business logic errors.
-                NonRetryableErrorTypes = new[] { "ApplicationFailureException" } 
             }
         };
 
@@ -128,7 +125,9 @@ public class TemporalReservationWorkflow
         catch (Exception ex)
         {
             Console.WriteLine(ex.Message);
+            return false;
         }
+
         return true;
     }
 }
@@ -149,12 +148,12 @@ public class TemporalReservationActivities
         {
             ItemResponse<OfferingDocument> offeringResponse = await container.ReadItemAsync<OfferingDocument>(
                 id: $"offering-{request.OfferingId}",
-                partitionKey: new PartitionKey(request.PartitionId));
+                partitionKey: new PartitionKey(request.OfferingId));
             if (offeringResponse.Resource.RemainingCount < request.Count) return false;
 
             var reservationDoc = new ReservationDocument
             {
-                PartitionId = request.PartitionId,
+                PartitionId = request.OfferingId,
                 Id = $"reservation-{request.ReservationId}",
                 OfferingId = $"offering-{request.OfferingId}",
                 CustomerId = request.CustomerId,
@@ -163,10 +162,10 @@ public class TemporalReservationActivities
 
             // 2. Create the batch with a conditional patch
             var batchOptions = new TransactionalBatchPatchItemRequestOptions { IfMatchEtag = offeringResponse.ETag };
-            var batch = container.CreateTransactionalBatch(new PartitionKey(request.PartitionId))
+            var batch = container.CreateTransactionalBatch(new PartitionKey(request.OfferingId))
                 .PatchItem(
                     id: $"offering-{request.OfferingId}", 
-                    patchOperations: new[] { PatchOperation.Increment("/RemainingCount", -request.Count) },
+                    patchOperations: new[] { PatchOperation.Increment("/remainingCount", -request.Count) },
                     requestOptions: batchOptions)
                 .CreateItem(reservationDoc);
             
@@ -176,11 +175,8 @@ public class TemporalReservationActivities
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
-            throw new ApplicationFailureException("Optimistic concurrency failure, retry needed.", nonRetryable: false);
-        }
-        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
-        {
-            return true;
+            // Retry E-TAG failure
+            return await MakeReservationAsync(request);
         }
     }
 
@@ -192,7 +188,7 @@ public class TemporalReservationActivities
             // 1. Read both the reservation to get its count, and the offering to get its ETag
             ItemResponse<OfferingDocument> offeringResponse = await container.ReadItemAsync<OfferingDocument>(
                 id: $"offering-{request.OfferingId}",
-                partitionKey: new PartitionKey(request.PartitionId));
+                partitionKey: new PartitionKey(request.OfferingId));
 
             // No need to read the reservation if we trust the input `request.Count`.
             // If we don't, we would read it here first.
@@ -201,11 +197,11 @@ public class TemporalReservationActivities
 
             // 2. Create a transactional batch with a conditional patch to increment inventory
             var batchOptions = new TransactionalBatchPatchItemRequestOptions { IfMatchEtag = offeringEtag };
-            var batch = container.CreateTransactionalBatch(new PartitionKey(request.PartitionId))
+            var batch = container.CreateTransactionalBatch(new PartitionKey(request.OfferingId))
                 .DeleteItem(id:  $"reservation-{request.ReservationId}")
                 .PatchItem(
                     id: $"offering-{request.OfferingId}",
-                    patchOperations: new[] { PatchOperation.Increment("/RemainingCount", request.Count) },
+                    patchOperations: new[] { PatchOperation.Increment("/remainingCount", request.Count) },
                     requestOptions: batchOptions);
 
             using var batchResponse = await batch.ExecuteAsync();
@@ -219,7 +215,7 @@ public class TemporalReservationActivities
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
         {
-            throw new ApplicationFailureException("Optimistic concurrency failure, retry needed.", nonRetryable: false);
+            await CancelReservationAsync(request);
         }
     }
 }

@@ -19,7 +19,6 @@ message ReservationRequest {
   int64 offeringId = 2;
   int64 customerId = 3;
   int32 count = 4;
-  int32 partitionId = 5; // For CosmosDB
 }
 
 message ReservationResponse {
