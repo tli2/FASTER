@@ -88,7 +88,7 @@ public class Program
         containerProperties.IndexingPolicy = indexingPolicy;
 
         await cosmosClient.GetDatabase("dsebench")
-            .CreateContainerIfNotExistsAsync(containerProperties, throughput: 10000);
+            .CreateContainerIfNotExistsAsync(containerProperties, throughput: 100000);
 
         var container = cosmosClient.GetDatabase("dsebench").GetContainer("offerings");
 
