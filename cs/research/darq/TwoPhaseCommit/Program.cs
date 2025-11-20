@@ -101,7 +101,6 @@ public class Program
         await Task.WhenAll(loadTasks);
         Console.WriteLine($"Populated {environment.GetNumShards()} shards in {stopwatch.Elapsed.TotalSeconds:F2}s");
         
-        
         Console.WriteLine($"Pre-generating {options.NumTransactions} transactions...");
         stopwatch.Restart();
         var clients = new Dictionary<byte, TpccShardService.TpccShardServiceClient>();
@@ -114,8 +113,7 @@ public class Program
         Console.WriteLine($"Generation complete in {stopwatch.Elapsed.TotalSeconds:F2}s");
         
         
-        Console.WriteLine($"Executing workload with...");
-        
+        Console.WriteLine($"Executing workload...");
         // Use a thread-safe counter for successful transactions
         long transactionsProcessed = 0;
         stopwatch.Restart();
@@ -219,17 +217,21 @@ public class Program
         });
         var checkpointManager = environment.GetShardCheckpointManager(options);
         
-        // TODO(Tianyu): Change to TpccShardSettings
-        builder.Services.AddSingleton(new FasterLogSettings
+        builder.Services.AddSingleton(new TpccShardSettings
         {
-            LogDevice = environment.GetShardDevice(options),
-            MemorySizeBits = 30,
-            LogCommitManager = checkpointManager,
-            FastCommitMode = true,
-            RemoveOutdatedCommits = false,
-            TryRecoverLatest = false,
-            AutoRefreshSafeTailAddress = true,
-            AutoCommit = false
+            logSettings = new FasterLogSettings
+            {
+                LogDevice = environment.GetShardDevice(options),
+                MemorySizeBits = 30,
+                LogCommitManager = checkpointManager,
+                FastCommitMode = true,
+                RemoveOutdatedCommits = false,
+                TryRecoverLatest = false,
+                AutoRefreshSafeTailAddress = true,
+                AutoCommit = false
+            },
+            environment = environment,
+            speculative = options.Speculative
         });
         
         builder.Services.AddSingleton(new DprWorkerOptions

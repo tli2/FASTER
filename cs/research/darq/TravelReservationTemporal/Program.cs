@@ -301,7 +301,9 @@ public class Program
             {
                 ActivityDefinition.Create(activities.MakeReservationAsync),
                 ActivityDefinition.Create(activities.CancelReservationAsync)
-            }
+            },
+            MaxConcurrentActivityTaskPolls = options.IssueWindow,
+            MaxConcurrentWorkflowTaskPolls = options.IssueWindow,
         };
 
         using var worker = new TemporalWorker(client, workerOptions);

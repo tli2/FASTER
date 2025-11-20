@@ -18,7 +18,7 @@ namespace TwoPhaseCommit;
 public class TpccShardSettings
 {
     public FasterLogSettings logSettings;
-    public Dictionary<int, string> clusterMap;
+    public IEnvironment environment;
     public bool speculative;
 }
 
@@ -48,8 +48,8 @@ public class TpccShard : StateObject
         this.settings = settings;
         log = new FasterLog(settings.logSettings);
         AddAttachment(timestamp);
-        foreach (var e in settings.clusterMap)
-            channels[e.Key] = GrpcChannel.ForAddress(e.Value);
+        for (var i = 0; i < settings.environment.GetNumShards(); i++)
+            channels[i] = GrpcChannel.ForAddress(settings.environment.GetShardConnString(i));
     }
 
     // Assuming we have smaller than 255 warehouses, guarantees unique txnId across warehouses and that transactions from different warehouses can interleave in order

@@ -20,7 +20,7 @@ public class TpccShardServiceLocalTests : IDisposable
         settings = new TpccShardSettings
         {
             logSettings = logSettings,
-            clusterMap = new Dictionary<int, string>(), // No remotes
+            environment = new LocalDebugEnvironment(),
             speculative = false
         };
 
