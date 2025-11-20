@@ -26,6 +26,9 @@ public static class TpccConstants
     private static readonly int C_C_LAST = new Random().Next(0, A_C_LAST + 1);
     private static readonly int C_C_ID = new Random().Next(0, A_C_ID + 1);
     private static readonly int C_OL_I_ID = new Random().Next(0, A_OL_I_ID + 1);
+
+    public static readonly double PAYMENT_REMOTE_PROB = 0.5;
+    public static readonly double ORDER_ITEM_REMOTE_PROB = 0.2;
     
 
     // According to TPC-C standard
@@ -114,7 +117,7 @@ public class TpccWorkloadGenerator
             int supply_w_id;
 
             // 1% of items are from a remote warehouse
-            if (rand.Next(1, 101) == 1 && numWarehouses > 1)
+            if (rand.NextDouble() <= TpccConstants.ORDER_ITEM_REMOTE_PROB && numWarehouses > 1)
             {
                 do
                 {
@@ -144,7 +147,7 @@ public class TpccWorkloadGenerator
         int c_w_id, c_d_id;
 
         // 15% of payments are for a remote warehouse
-        if (rand.Next(1, 101) <= 15 && numWarehouses > 1)
+        if (rand.NextDouble() <= TpccConstants.PAYMENT_REMOTE_PROB && numWarehouses > 1)
         {
             do
             {

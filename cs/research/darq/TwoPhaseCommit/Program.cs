@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Net;
 using CommandLine;
+using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
 using FASTER.libdpr.gRPC;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Grpc.Core;
+using Grpc.Core.Interceptors;
 using protobuf;
 
 namespace TwoPhaseCommit;
@@ -114,24 +116,34 @@ public class Program
         
         
         Console.WriteLine($"Executing workload...");
+        var rateLimiter = new SemaphoreSlim(options.Window, options.Window);
         // Use a thread-safe counter for successful transactions
         long transactionsProcessed = 0;
         stopwatch.Restart();
-        ConcurrentQueue<(long, long)> measurements = new ConcurrentQueue<(long, long)>();
-        // Parallel.ForEachAsync is the perfect tool for this.
-        // It will run up to MAX_PARALLELISM tasks from the 'workload' list concurrently.
-        await Parallel.ForEachAsync(workload,
-            new ParallelOptions { MaxDegreeOfParallelism = options.Window },
-            async (transaction, cancellationToken) =>
+        var measurements = new ConcurrentQueue<(long, long)>();
+        var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
+        
+        for (var i = 0; i < workload.Count; i++)
+        {
+            await rateLimiter.WaitAsync();
+            if (options.Fail && i == workload.Count / 2)
+            {
+                if (options.Speculative)
+                    finder.ForceRollback();
+            }
+
+            var i1 = i;
+            Task.Run(async () =>
             {
                 try
                 {
                     var startTime = stopwatch.ElapsedTicks;
                     // Run the pre-generated task (which includes the RPC call)
-                    await transaction();
+                    await workload[i1]();
                     Interlocked.Increment(ref transactionsProcessed);
                     var latency = stopwatch.ElapsedTicks - startTime;
                     measurements.Enqueue((startTime, latency));
+                    rateLimiter.Release();
                 }
                 catch (RpcException ex)
                 {
@@ -142,6 +154,7 @@ public class Program
                     Console.Error.WriteLine($"Client Error: {ex.Message}");
                 }
             });
+        }
         
         stopwatch.Stop();
         Console.WriteLine("Execution complete.");
