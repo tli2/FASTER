@@ -120,7 +120,7 @@ public class TpccShard : StateObject
 
         var toRemove = new List<long>();
         // Any uncommitted/prepared active transaction at this point must have been lost, so we can abort
-        foreach (var e in activeTransactions)
+        foreach (var e in activeTransactions.ToList())
         {
             if (e.Value.Prepared()) continue;
             Abort(e.Value, false);
@@ -144,12 +144,13 @@ public class TpccShard : StateObject
         else
         {
             // Can rollback by simply undoing all the active transactions and speculatively committed transactions
-            foreach (var txn in activeTransactions.Values)
+            foreach (var txn in activeTransactions.Values.ToList())
                 Abort(txn, false);
 
             foreach (var e in recentlyCommittedTransactions)
             {
-                Debug.Assert(e.Key > version);
+                // Maybe pruning is behind, which is fine
+                if (e.Key <= version) continue;
                 while (e.Value.TryDequeue(out var txn))
                 {
                     txn.Undo();
@@ -157,6 +158,7 @@ public class TpccShard : StateObject
                 }
             }
 
+            // Can still clear -- everything that survived now will also survive in the future
             recentlyCommittedTransactions.Clear();
         }
     }

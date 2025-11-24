@@ -128,23 +128,29 @@ public class Program
             {
                 foreach (var w in warehouse)
                 {
+                    await rateLimiter.WaitAsync();
+                    var startTime = stopwatch.ElapsedTicks;
                     try
                     {
-                        await rateLimiter.WaitAsync();
-                        var startTime = stopwatch.ElapsedTicks;
                         var success = await w();
-                        Interlocked.Increment(ref transactionsProcessed);
+                        var id = Interlocked.Increment(ref transactionsProcessed);
                         var latency = stopwatch.ElapsedTicks - startTime;
                         measurements.Enqueue((startTime, success ? latency : -latency));
+                        if (options.Fail && id == options.NumTransactions / 2)
+                        {
+                            Console.WriteLine("Triggering failover");
+                            finder.ForceRollback();
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Console.Error.WriteLine($"Error: {e.Message}");
+                        measurements.Enqueue((startTime, -(stopwatch.ElapsedTicks - startTime)));
+                        Interlocked.Increment(ref transactionsProcessed);
+                    }
+                    finally
+                    {
                         rateLimiter.Release();
-                    }
-                    catch (RpcException ex)
-                    {
-                        Console.Error.WriteLine($"RPC Error: {ex.Status.Detail}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"Client Error: {ex.Message}");
                     }
                 }
             });
@@ -152,12 +158,6 @@ public class Program
 
         while (transactionsProcessed < options.NumTransactions)
         {
-            // TODO(Tianyu): simulate node fail over here
-            // if (options.Fail && i == workload.Count / 2)
-            // {
-            //     if (options.Speculative)
-            //         finder.ForceRollback();
-            // }
             await Task.Yield();
         }
 
@@ -185,8 +185,7 @@ public class Program
             if (latency < 0)
             {
                 aborted++;
-                streamWriter.WriteLine($"{startTime}, 0");
-
+                streamWriter.WriteLine($"{startTime}, -1");
             }
             else
                 streamWriter.WriteLine($"{startTime}, {1000.0 * latency / Stopwatch.Frequency}");
