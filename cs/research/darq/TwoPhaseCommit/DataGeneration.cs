@@ -63,14 +63,14 @@ public static class TpccConstants
 public class TpccWorkloadGenerator
 {
     public static List<Func<Task>> GenerateWorkload(
-        Dictionary<byte, TpccShardService.TpccShardServiceClient> clients, int numWarehouses, long numTransactions)
+        Dictionary<byte, TpccShardService.TpccShardServiceClient> clients, long numTransactions)
     {
         var workload = new List<Func<Task>>((int)numTransactions);
         var rand = new Random();
 
         for (long i = 0; i < numTransactions; i++)
         {
-            var homeWarehouse = (byte) rand.Next(1, numWarehouses + 1);
+            var homeWarehouse = (byte) rand.Next(0, TpccConstants.NUM_WAREHOUSES);
 
             // Find the correct client for this transaction's home warehouse
             TpccShardService.TpccShardServiceClient client = clients[homeWarehouse];
@@ -78,13 +78,13 @@ public class TpccWorkloadGenerator
 
             if (choice <= 49)
             {
-                var req = GenerateNewOrderRequest(rand, homeWarehouse, numWarehouses);
+                var req = GenerateNewOrderRequest(rand, homeWarehouse);
                 // Capture the 'client' and 'req' in the lambda
                 workload.Add(async () => { await client.NewOrderAsync(req); });
             }
             else if (choice <= 96)
             {
-                var req = GeneratePaymentRequest(rand, homeWarehouse, numWarehouses);
+                var req = GeneratePaymentRequest(rand, homeWarehouse);
                 workload.Add(async () => { await client.PaymentAsync(req); });
             }
             else
@@ -97,10 +97,10 @@ public class TpccWorkloadGenerator
         return workload;
     }
 
-    private static NewOrderRequest GenerateNewOrderRequest(Random rand, int homeWarehouseId, int numWarehouses)
+    private static NewOrderRequest GenerateNewOrderRequest(Random rand, int homeWarehouseId)
     {
         int w_id = homeWarehouseId;
-        int d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+        int d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         int c_id = TpccConstants.GetCustomerId(rand);
         int ol_cnt = rand.Next(5, 16); // 5 to 15 items
 
@@ -117,11 +117,11 @@ public class TpccWorkloadGenerator
             int supply_w_id;
 
             // 1% of items are from a remote warehouse
-            if (rand.NextDouble() <= TpccConstants.ORDER_ITEM_REMOTE_PROB && numWarehouses > 1)
+            if (rand.NextDouble() <= TpccConstants.ORDER_ITEM_REMOTE_PROB && TpccConstants.NUM_WAREHOUSES > 1)
             {
                 do
                 {
-                    supply_w_id = rand.Next(1, numWarehouses + 1);
+                    supply_w_id = rand.Next(0, TpccConstants.NUM_WAREHOUSES);
                 } while (supply_w_id == w_id);
             }
             else
@@ -140,21 +140,21 @@ public class TpccWorkloadGenerator
         return request;
     }
 
-    private static PaymentRequest GeneratePaymentRequest(Random rand, int homeWarehouseId, int numWarehouses)
+    private static PaymentRequest GeneratePaymentRequest(Random rand, int homeWarehouseId)
     {
         int w_id = homeWarehouseId;
-        int d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+        int d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         int c_w_id, c_d_id;
 
         // 15% of payments are for a remote warehouse
-        if (rand.NextDouble() <= TpccConstants.PAYMENT_REMOTE_PROB && numWarehouses > 1)
+        if (rand.NextDouble() <= TpccConstants.PAYMENT_REMOTE_PROB && TpccConstants.NUM_WAREHOUSES > 1)
         {
             do
             {
-                c_w_id = rand.Next(1, numWarehouses + 1);
+                c_w_id = rand.Next(0, TpccConstants.NUM_WAREHOUSES);
             } while (c_w_id == w_id);
 
-            c_d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+            c_d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         }
         else
         {
@@ -179,7 +179,7 @@ public class TpccWorkloadGenerator
     private static OrderStatusRequest GenerateOrderStatusRequest(Random rand, int homeWarehouseId)
     {
         int w_id = homeWarehouseId;
-        int d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+        int d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         int c_id = TpccConstants.GetCustomerId(rand);
 
         return new OrderStatusRequest

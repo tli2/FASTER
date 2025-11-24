@@ -111,7 +111,7 @@ public class Program
             var channel = connections[i % environment.GetNumShards()];
             clients.Add(i, new TpccShardService.TpccShardServiceClient(channel));
         }
-        var workload = TpccWorkloadGenerator.GenerateWorkload(clients, TpccConstants.NUM_WAREHOUSES, options.NumTransactions);
+        var workload = TpccWorkloadGenerator.GenerateWorkload(clients, options.NumTransactions);
         Console.WriteLine($"Generation complete in {stopwatch.Elapsed.TotalSeconds:F2}s");
         
         
