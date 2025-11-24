@@ -39,7 +39,7 @@ public class Options
         HelpText = "number of outstanding client requests allowed")]
     public int Window { get; set; }
     
-    [Option('t', "num-transactions", Required = false, Default = 10000,
+    [Option('x', "num-transactions", Required = false, Default = 10000,
         HelpText = "number of total transactions to run")]
     public int NumTransactions { get; set; }
     
