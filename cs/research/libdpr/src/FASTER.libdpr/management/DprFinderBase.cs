@@ -10,15 +10,14 @@ namespace FASTER.libdpr
     public abstract class DprFinderBase : IDprFinder
     {
         // We maintain two cuts that alternate being updated, and atomically swap them
-        private Dictionary<DprWorkerId, long> frontCut, backCut;
-        private ClusterState frontState, backState;
+        // TODO(Tianyu): This does not appear safe when refresh is fast and threads are slow
+        private Dictionary<DprWorkerId, long> cut;
+        private ClusterState state;
 
         protected DprFinderBase()
         {
-            frontCut = new Dictionary<DprWorkerId, long>();
-            backCut = new Dictionary<DprWorkerId, long>();
-            frontState = new ClusterState();
-            backState = new ClusterState();
+            cut = new Dictionary<DprWorkerId, long>();
+            state = new ClusterState();
         }
 
         public virtual long CurrentTime()
@@ -28,18 +27,18 @@ namespace FASTER.libdpr
 
         public long SafeVersion(DprWorkerId dprWorkerId)
         {
-            return frontCut.TryGetValue(dprWorkerId, out var result) ? result : 0;
+            return cut.TryGetValue(dprWorkerId, out var result) ? result : 0;
         }
 
         public long SystemWorldLine()
         {
-            return frontState.currentWorldLine;
+            return state.currentWorldLine;
         }
 
         public DprStatus CheckStatus(ReadOnlySpan<byte> header)
         {
             ref readonly var dprHeader = ref MemoryMarshal.AsRef<DprMessageHeader>(header);
-            var state = frontState;
+            var state = this.state;
 
             if (dprHeader.WorldLine < state.currentWorldLine) return DprStatus.ROLLEDBACK;
             if (dprHeader.SrcWorkerId == DprWorkerId.INVALID)
@@ -81,33 +80,30 @@ namespace FASTER.libdpr
 
         public void Refresh(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider)
         {
-            // Reset data structures
-            backCut.Clear();
-            backState.currentWorldLine = 1;
-            backState.worldLinePrefix.Clear();
+            var newCut = new Dictionary<DprWorkerId, long>();
+            var newState = new ClusterState();
 
-            if (!Sync(backState, backCut))
+            if (!Sync(newState, newCut))
             {
                 SendGraphReconstruction(id, provider);
                 Refresh(id, provider);
             }
 
             // Ok to not update the two atomically because cuts are resilient to cluster state changes anyway
-            backState = Interlocked.Exchange(ref frontState, backState);
-            backCut = Interlocked.Exchange(ref frontCut, backCut);
+            Interlocked.Exchange(ref state, newState);
+            Interlocked.Exchange(ref cut, newCut);
         }
 
         public void RefreshStateless()
         {
-            backCut.Clear();            
-            backState.currentWorldLine = 1;
-            backState.worldLinePrefix.Clear();
+            var newCut = new Dictionary<DprWorkerId, long>();
+            var newState = new ClusterState();
             // Cut is unavailable, do nothing.
-            if (!Sync(backState, backCut)) return;
+            if (!Sync(newState, newCut)) return;
 
             // Ok to not update the two atomically because cuts are resilient to cluster state changes anyway
-            backState = Interlocked.Exchange(ref frontState, backState);
-            backCut = Interlocked.Exchange(ref frontCut, backCut);
+            Interlocked.Exchange(ref state, newState);
+            Interlocked.Exchange(ref cut, newCut);
         }
 
         public long AddWorker(DprWorkerId id, IDprFinder.UnprunedVersionsProvider provider)

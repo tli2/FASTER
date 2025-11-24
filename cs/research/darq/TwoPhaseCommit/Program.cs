@@ -262,7 +262,7 @@ public class Program
             Me = new DprWorkerId(options.WorkerName),
             DprFinder = new GrpcDprFinder(environment.GetDprFinderConnString()),
             CheckpointPeriodMilli = 10,
-            RefreshPeriodMilli = 1
+            RefreshPeriodMilli = 5
         });
 
         builder.Services.AddSingleton(typeof(IVersionScheme), typeof(RwLatchVersionScheme));
