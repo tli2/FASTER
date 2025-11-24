@@ -370,12 +370,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         txn.AddUndoAction(() => bg.so.orders.TryRemove(newOrderKey));
         bg.so.orders.TryAdd(new OrderKey((byte)request.WId, (byte)request.DId, request.CId, oId), newOrder);
 
-        var requestsToShards = new List<RemoteOrderRequest>();
-        for (var i = 0; i < bg.so.channels.Count; i++)
-            requestsToShards.Add(new RemoteOrderRequest
-            {
-                TxnId = txn.Id()
-            });
+        List<RemoteOrderRequest> requestsToShards = null;
         var remote = false;
 
         for (var i = 0; i < request.Items.Count; i++)
@@ -387,8 +382,17 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             // Only perform local updates to stock
             if (!bg.so.warehouses.ContainsKey((byte)ol.WSupplyingId))
             {
-                remote = true;
-                var r = requestsToShards[i % bg.so.channels.Count];
+                if (!remote)
+                {
+                    remote = true;
+                    requestsToShards = new List<RemoteOrderRequest>();
+                    for (var j = 0; j < bg.so.channels.Count; j++)
+                        requestsToShards.Add(new RemoteOrderRequest
+                        {
+                            TxnId = txn.Id()
+                        });
+                }
+                var r = requestsToShards[ol.WSupplyingId % bg.so.channels.Count];
                 r.Items.Add(ol);
             }
             else if (!await UpdateStock(txn, ol))
@@ -680,7 +684,6 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         Debug.Assert(!bg.so.activeTransactions.TryGetValue(request.TxnId, out _));
 
         var txn = bg.so.StartTransaction(request.TxnId);
-        ;
         foreach (var t in request.Items)
             await UpdateStock(txn, t);
 
