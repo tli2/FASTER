@@ -1,0 +1,56 @@
+{{- range until (.Values.num_silos | int) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: silo{{ . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orleans-silos
+      silo-id: "{{ . }}"
+  template:
+    metadata:
+      labels:
+        app: orleans-silos
+        silo-id: "{{ . }}"
+
+        orleans/serviceId: "tpcc-benchmark-service"
+        orleans/clusterId: "tpcc-cluster"
+    spec:
+      serviceAccountName: deployment-watcher
+      containers:
+        - name: silo{{ . }}
+          image: tianyuli96/faster:latest
+          command: ["./TwoPhaseCommitOrleans", "-t", "participant"]
+          workingDir: "/app/TwoPhaseCommitOrleans"
+          ports:
+            - containerPort: 11111
+              name: silo-port
+            - containerPort: 30000
+              name: gateway-port
+          envFrom:
+            - configMapRef:
+                name: env-config
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AZURE_TABLE_CONN_STRING
+              value: "{{ .Values.conn_string }}"
+            - name: AZURE_RESULTS_CONN_STRING
+              value: "{{ .Values.results_conn_string }}"
+      nodeSelector:
+        nodepool: dsebench
+      restartPolicy: Always
+---
+{{- end }}

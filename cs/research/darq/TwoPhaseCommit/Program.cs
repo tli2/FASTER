@@ -39,7 +39,7 @@ public class Options
         HelpText = "number of outstanding client requests allowed")]
     public int Window { get; set; }
     
-    [Option('t', "num-transactions", Required = false, Default = 100000,
+    [Option('t', "num-transactions", Required = false, Default = 10000,
         HelpText = "number of total transactions to run")]
     public int NumTransactions { get; set; }
     
@@ -155,6 +155,9 @@ public class Program
                 }
             });
         }
+        
+        while (transactionsProcessed < options.NumTransactions)
+            await Task.Yield();
         
         stopwatch.Stop();
         Console.WriteLine("Execution complete.");

@@ -495,8 +495,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         c.cPaymentCnt++;
         return true;
     }
-
-
+    
     public override async Task<PaymentResponse> Payment(PaymentRequest request, ServerCallContext context)
     {
         var txnId = bg.so.GetNextTransactionId();

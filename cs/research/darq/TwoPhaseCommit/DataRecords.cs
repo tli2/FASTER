@@ -398,13 +398,6 @@ public struct OrderLineKey : IEquatable<OrderLineKey>, IComparable<OrderLineKey>
     }
 }
 
-public class NewOrder : RowRecord
-{
-    public int noOId;
-    public byte noDId;
-    public byte noWId;
-}
-
 public class Item : RowRecord
 {
     public int iId;

@@ -32,9 +32,6 @@ spec:
             - "participant"
             - "-n"
             - "{{ .num }}"
-            {{- if $.Values.failover }}
-            - "-f"
-            {{- end }}
           workingDir: "/app/TwoPhaseCommit"
           image: tianyuli96/faster:latest
           name: participant{{ .num }}

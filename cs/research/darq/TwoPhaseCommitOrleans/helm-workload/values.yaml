@@ -1,0 +1,5 @@
+azure_table_conn_string: foo
+results_conn_string: foo
+tag: default
+num_silos: 4
+window: 32
