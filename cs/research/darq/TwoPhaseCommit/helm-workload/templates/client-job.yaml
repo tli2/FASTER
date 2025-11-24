@@ -29,9 +29,6 @@ spec:
           args:
             - "-t"
             - "client"
-            {{- if $.Values.speculative }}
-            - "-s"
-            {{- end }}
             {{- if $.Values.failover }}
             - "-f"
             {{- end }}

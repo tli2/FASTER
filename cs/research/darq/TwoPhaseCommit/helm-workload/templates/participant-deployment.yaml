@@ -32,6 +32,9 @@ spec:
             - "participant"
             - "-n"
             - "{{ .num }}"
+            {{- if $.Values.speculative }}
+            - "-s"
+            {{- end }}
           workingDir: "/app/TwoPhaseCommit"
           image: tianyuli96/faster:latest
           name: participant{{ .num }}
