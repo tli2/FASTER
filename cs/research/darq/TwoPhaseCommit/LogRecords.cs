@@ -36,7 +36,7 @@ public struct AbortLogRecord : ILogRecord
 
     public void SerializeTo(Span<byte> dest)
     {
-        MemoryMarshal.Write(dest, ref this);
+        MemoryMarshal.Write(dest, this);
     }
 
     public void Replay(TpccShard db)
@@ -72,7 +72,7 @@ public struct CommitLogRecord : ILogRecord
 
     public void SerializeTo(Span<byte> dest)
     {
-        MemoryMarshal.Write(dest, ref this);
+        MemoryMarshal.Write(dest, this);
     }
 
     public void Replay(TpccShard db)
@@ -107,7 +107,7 @@ public struct TwoPCStartLogRecord : ILogRecord
 
     public void SerializeTo(Span<byte> dest)
     {
-        MemoryMarshal.Write(dest, ref this);
+        MemoryMarshal.Write(dest, this);
     }
 
     public void Replay(TpccShard db)
@@ -132,7 +132,7 @@ public struct PreparedLogRecord : ILogRecord
 
     public void SerializeTo(Span<byte> dest)
     {
-        MemoryMarshal.Write(dest, ref this);
+        MemoryMarshal.Write(dest, this);
     }
 
     public void Replay(TpccShard db)
@@ -165,7 +165,7 @@ public struct InsertOrderLogRecord : ILogRecord
 
     public void SerializeTo(Span<byte> dest)
     {
-        MemoryMarshal.Write(dest, ref this);
+        MemoryMarshal.Write(dest, this);
     }
 
     public void Replay(TpccShard db)
@@ -211,7 +211,7 @@ public struct InsertOrderLineLogRecord : ILogRecord
     [FieldOffset(40)] public int olQuantity;
 
     public int SerializedLength => 44;
-    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, ref this);
+    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, this);
 
     public void Replay(TpccShard db)
     {
@@ -251,7 +251,7 @@ public struct UpdateNextOrderIdLogRecord : ILogRecord
     [FieldOffset(8)] public long transactionId;
 
     public int SerializedLength => 16;
-    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, ref this);
+    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, this);
 
     public void Replay(TpccShard db)
     {
@@ -279,7 +279,7 @@ public struct UpdateStockLogRecord : ILogRecord
     [FieldOffset(16)] public int newQuantity;
 
     public int SerializedLength => 20;
-    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, ref this);
+    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, this);
 
     public void Replay(TpccShard db)
     {
@@ -307,7 +307,7 @@ public struct UpdateWarehouseYtdLogRecord : ILogRecord
     [FieldOffset(16)] public double newYtd;
 
     public int SerializedLength => 24;
-    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, ref this);
+    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, this);
 
     public void Replay(TpccShard db)
     {
@@ -336,7 +336,7 @@ public struct UpdateDistrictYtdLogRecord : ILogRecord
     [FieldOffset(16)] public double newYtd;
 
     public int SerializedLength => 24;
-    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, ref this);
+    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, this);
 
     public void Replay(TpccShard db)
     {
@@ -365,7 +365,7 @@ public struct UpdateCustomerLogRecord : ILogRecord
     [FieldOffset(16)] public double amount;
 
     public int SerializedLength => 24;
-    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, ref this);
+    public void SerializeTo(Span<byte> dest) => MemoryMarshal.Write(dest, this);
 
     public void Replay(TpccShard db)
     {

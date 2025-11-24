@@ -62,10 +62,13 @@ public static class TpccConstants
 /// </summary>
 public class TpccWorkloadGenerator
 {
-    public static List<Func<Task>> GenerateWorkload(
+    public static List<List<Func<Task>>> GenerateWorkload(
         Dictionary<byte, TpccShardService.TpccShardServiceClient> clients, long numTransactions)
     {
-        var workload = new List<Func<Task>>((int)numTransactions);
+        var workload = new List<List<Func<Task>>>();
+        for (var i = 0; i < TpccConstants.NUM_WAREHOUSES; i++)
+            workload.Add(new List<Func<Task>>());
+        
         var rand = new Random();
 
         for (long i = 0; i < numTransactions; i++)
@@ -80,17 +83,17 @@ public class TpccWorkloadGenerator
             {
                 var req = GenerateNewOrderRequest(rand, homeWarehouse);
                 // Capture the 'client' and 'req' in the lambda
-                workload.Add(async () => { await client.NewOrderAsync(req); });
+                workload[homeWarehouse].Add(async () => { await client.NewOrderAsync(req); });
             }
             else if (choice <= 96)
             {
                 var req = GeneratePaymentRequest(rand, homeWarehouse);
-                workload.Add(async () => { await client.PaymentAsync(req); });
+                workload[homeWarehouse].Add(async () => { await client.PaymentAsync(req); });
             }
             else
             {
                 var req = GenerateOrderStatusRequest(rand, homeWarehouse);
-                workload.Add(async () => { await client.OrderStatusAsync(req); });
+                workload[homeWarehouse].Add(async () => { await client.OrderStatusAsync(req); });
             }
         }
 
@@ -193,7 +196,7 @@ public class TpccWorkloadGenerator
     public static List<Item> GenerateItems(Random rand)
     {
         var result = new List<Item>();
-        for (var i = 0; i < TpccConstants.NUM_ITEMS; i++)
+        for (var i = 1; i < TpccConstants.NUM_ITEMS + 1; i++)
         {
             result.Add(new Item
             {
@@ -245,7 +248,7 @@ public class TpccWorkloadGenerator
                     dNextOrderId = 1
                 };
                 
-                for (int c = 0; c < TpccConstants.NUM_CUSTOMERS_PER_DISTRICT; c++)
+                for (int c = 1; c < TpccConstants.NUM_CUSTOMERS_PER_DISTRICT + 1; c++)
                 {
 
                     shard.customers[new CustomerKey(wId, d, c)] = new Customer

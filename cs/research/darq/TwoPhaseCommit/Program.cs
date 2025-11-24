@@ -123,42 +123,48 @@ public class Program
         var measurements = new ConcurrentQueue<(long, long)>();
         var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
         
+        
+        
         for (var i = 0; i < workload.Count; i++)
         {
-            await rateLimiter.WaitAsync();
-            if (options.Fail && i == workload.Count / 2)
-            {
-                if (options.Speculative)
-                    finder.ForceRollback();
-            }
-
-            var i1 = i;
+            var warehouse = workload[i];
             Task.Run(async () =>
             {
-                try
+                foreach (var w in warehouse)
                 {
-                    var startTime = stopwatch.ElapsedTicks;
-                    // Run the pre-generated task (which includes the RPC call)
-                    await workload[i1]();
-                    Interlocked.Increment(ref transactionsProcessed);
-                    var latency = stopwatch.ElapsedTicks - startTime;
-                    measurements.Enqueue((startTime, latency));
-                    rateLimiter.Release();
-                }
-                catch (RpcException ex)
-                {
-                    Console.Error.WriteLine($"RPC Error: {ex.Status.Detail}");
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Client Error: {ex.Message}");
+                    try
+                    {
+                        await rateLimiter.WaitAsync();
+                        var startTime = stopwatch.ElapsedTicks;
+                        await w();
+                        Interlocked.Increment(ref transactionsProcessed);
+                        var latency = stopwatch.ElapsedTicks - startTime;
+                        measurements.Enqueue((startTime, latency));
+                        rateLimiter.Release();
+                    }
+                    catch (RpcException ex)
+                    {
+                        Console.Error.WriteLine($"RPC Error: {ex.Status.Detail}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Client Error: {ex.Message}");
+                    }
                 }
             });
         }
-        
+
         while (transactionsProcessed < options.NumTransactions)
+        {
+            // TODO(Tianyu): simulate node fail over here
+            // if (options.Fail && i == workload.Count / 2)
+            // {
+            //     if (options.Speculative)
+            //         finder.ForceRollback();
+            // }
             await Task.Yield();
-        
+        }
+
         stopwatch.Stop();
         Console.WriteLine("Execution complete.");
         
