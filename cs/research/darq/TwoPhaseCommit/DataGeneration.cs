@@ -77,15 +77,15 @@ public class TpccWorkloadGenerator
 
             // Find the correct client for this transaction's home warehouse
             TpccShardService.TpccShardServiceClient client = clients[homeWarehouse];
-            int choice = rand.Next(1, 101);
+            var choice = rand.NextDouble();
 
-            if (choice <= 49)
+            if (choice <= 0.49)
             {
                 var req = GenerateNewOrderRequest(rand, homeWarehouse);
                 // Capture the 'client' and 'req' in the lambda
                 workload[homeWarehouse].Add(async () => { await client.NewOrderAsync(req); });
             }
-            else if (choice <= 96)
+            else if (choice <= 0.96)
             {
                 var req = GeneratePaymentRequest(rand, homeWarehouse);
                 workload[homeWarehouse].Add(async () => { await client.PaymentAsync(req); });

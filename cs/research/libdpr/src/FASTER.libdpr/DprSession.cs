@@ -174,7 +174,7 @@ namespace FASTER.libdpr
 
         // TODO(Tianyu): Need to find a way for long-running sessions to prune its dependencies
         // Not safe to invoke concurrently with other methods on this session
-        public Task SpeculationBarrier(IDprFinder dprFinder, bool autoRefresh = false)
+        public async Task SpeculationBarrier(IDprFinder dprFinder, bool autoRefresh = false)
         {
             while (true)
             {
@@ -190,11 +190,10 @@ namespace FASTER.libdpr
                 if (deps.All(wv => dprFinder.SafeVersion(wv.DprWorkerId) >= wv.Version))
                 {
                     deps.UnsafeClear();
-                    return Task.CompletedTask;
+                    return;
                 }
-
-                // TODO(Tianyu): Fix busy wait
-                Thread.Yield();
+                // TODO(Tianyu): Fix busy wait?
+                await Task.Yield();
             }
         }
     }

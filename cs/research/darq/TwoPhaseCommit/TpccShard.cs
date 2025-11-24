@@ -52,27 +52,30 @@ public class TpccShard : StateObject
             channels[i] = GrpcChannel.ForAddress(settings.environment.GetShardConnString(i));
     }
 
-    // Assuming we have smaller than 255 warehouses, guarantees unique txnId across warehouses and that transactions from different warehouses can interleave in order
-    public long GetNextTransactionId() => Interlocked.Increment(ref timestamp.value) << 56 | Me().guid;
+    // guarantees unique txnId across shards and that transactions from different warehouses can interleave in order
+    internal long GetNextTransactionId() => Interlocked.Increment(ref timestamp.value) << 8 | Me().guid;
 
     public TransactionContext StartTransaction(long txnId)
     {
         var txn = objectPool.Checkout().Reset(txnId);
-        activeTransactions[txnId] = txn;
+        var success = activeTransactions.TryAdd(txnId, txn);
+        Debug.Assert(success);
         return txn;
     }
 
     public async ValueTask Commit(TransactionContext txn)
     {
-        if (!txn.ReadOnly())
+        if (activeTransactions.TryRemove(txn.Id(), out _))
         {
-            await log.EnqueueAsync(LogRecords.CreateCommitRecord(txn.Id()));
-            recentlyCommittedTransactions.GetOrAdd(Version(), _ => new ConcurrentQueue<TransactionContext>())
-                .Enqueue(txn);
-        }
+            if (!txn.ReadOnly())
+            {
+                await log.EnqueueAsync(LogRecords.CreateCommitRecord(txn.Id()));
+                recentlyCommittedTransactions.GetOrAdd(Version(), _ => new ConcurrentQueue<TransactionContext>())
+                    .Enqueue(txn);
+            }
 
-        txn.ReleaseLocks();
-        activeTransactions.TryRemove(txn.Id(), out _);
+            txn.ReleaseLocks();
+        }
     }
 
     public async ValueTask Prepare(TransactionContext txn)
@@ -91,12 +94,14 @@ public class TpccShard : StateObject
 
     public async ValueTask Abort(TransactionContext txn, bool yieldRecord = true)
     {
-        if (!txn.ReadOnly() && yieldRecord)
-            await log.EnqueueAsync(LogRecords.CreateAbortRecord(txn.Id()));
-        txn.Undo();
-        txn.ReleaseLocks();
-        activeTransactions.TryRemove(txn.Id(), out _);
-        objectPool.Return(txn);
+        if (activeTransactions.TryRemove(txn.Id(), out _))
+        {
+            if (!txn.ReadOnly() && yieldRecord)
+                await log.EnqueueAsync(LogRecords.CreateAbortRecord(txn.Id()));
+            txn.Undo();
+            txn.ReleaseLocks();
+            objectPool.Return(txn);
+        }
     }
 
     public override void PerformCheckpoint(long version, ReadOnlySpan<byte> metadata, Action onPersist)
@@ -449,32 +454,36 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             throw new DprSessionRolledBackException(s.WorldLine);
 
         if (success)
-            await CommitWrapper(txn);
-        else
-            await AbortWrapper(txn);
-
-        s = bg.so.DetachFromWorkerAndPauseAction();
-        // Asynchronously notify the remote warehouse of the outcome
-        Task.Run(async () =>
         {
-            if (!bg.so.settings.speculative)
-                await s.SpeculationBarrier(bg.so.GetDprFinder());
-            foreach (var v in tasksToWait)
+            await CommitWrapper(txn);
+            s = bg.so.DetachFromWorker();
+            // Asynchronously notify the remote warehouse of the outcome
+            Task.Run(async () =>
             {
-                if (success)
+                if (!bg.so.settings.speculative)
+                    await s.SpeculationBarrier(bg.so.GetDprFinder());
+                // TODO: Issue in parallel
+                foreach (var v in tasksToWait)
                     await v.Item1.CommitRemoteParticipantAsync(new CommitRemoteParticipantRequest
                     {
                         // Use local variable because we could re-use TransactionContext object when this goes out
                         TxnId = txnId
                     });
-                else
-                    await v.Item1.AbortRemoteParticipantAsync(new AbortRemoteParticipantRequest
-                    {
-                        // Use local variable because we could re-use TransactionContext object when this goes out
-                        TxnId = txnId
-                    });
+            });
+        }
+        else
+        {
+            await AbortWrapper(txn);
+            foreach (var v in tasksToWait)
+            {
+                await v.Item1.AbortRemoteParticipantAsync(new AbortRemoteParticipantRequest
+                {
+                    // Use local variable because we could re-use TransactionContext object when this goes out
+                    TxnId = txnId
+                });
             }
-        });
+        }
+
         return success;
     }
 
@@ -579,32 +588,31 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             throw new DprSessionRolledBackException(s.WorldLine);
 
         if (vote.Success)
-            await CommitWrapper(txn);
-        else
-            await AbortWrapper(txn);
-
-        s = bg.so.DetachFromWorkerAndPauseAction();
-        // Asynchronously notify the remote warehouse of the outcome
-        Task.Run(async () =>
         {
-            if (!bg.so.settings.speculative)
-                await s.SpeculationBarrier(bg.so.GetDprFinder());
-            if (vote.Success)
+            await CommitWrapper(txn);
+            s = bg.so.DetachFromWorker();
+
+            // Asynchronously notify the remote warehouse of the outcome
+            Task.Run(async () =>
+            {
+                if (!bg.so.settings.speculative)
+                    await s.SpeculationBarrier(bg.so.GetDprFinder());
                 await client.CommitRemoteParticipantAsync(new CommitRemoteParticipantRequest
                 {
                     // Use local copy because we may free and reuse the txn object locally
                     TxnId = txnId
                 });
-            else
-                await client.AbortRemoteParticipantAsync(new AbortRemoteParticipantRequest
-                {
-                    // Use local copy because we may free and reuse the txn object locally
-                    TxnId = txnId
-                });
-        });
+            });
+        }
+        else
+        {
+            await AbortWrapper(txn);
+            // No need to abort remote because if we abort it's because remote told us so
+        }
+        
         return vote.Success;
     }
-    
+
     public override async Task<OrderStatusResponse> OrderStatus(OrderStatusRequest request, ServerCallContext context)
     {
         var txnId = bg.so.GetNextTransactionId();
@@ -685,11 +693,16 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
 
         var txn = bg.so.StartTransaction(request.TxnId);
         foreach (var t in request.Items)
-            await UpdateStock(txn, t);
+        {
+            if (!await UpdateStock(txn, t))
+                return new RemoteOrderResponse
+                {
+                    Success = false
+                };
+        }
 
         // Implicitly assume that the coordinator asks us to prepare and vote yes
         await PrepareWrapper(txn);
-
         return new RemoteOrderResponse
         {
             Success = true
