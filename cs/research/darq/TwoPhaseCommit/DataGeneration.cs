@@ -62,12 +62,12 @@ public static class TpccConstants
 /// </summary>
 public class TpccWorkloadGenerator
 {
-    public static List<List<Func<Task>>> GenerateWorkload(
+    public static List<List<Func<Task<bool>>>> GenerateWorkload(
         Dictionary<byte, TpccShardService.TpccShardServiceClient> clients, long numTransactions)
     {
-        var workload = new List<List<Func<Task>>>();
+        var workload = new List<List<Func<Task<bool>>>>();
         for (var i = 0; i < TpccConstants.NUM_WAREHOUSES; i++)
-            workload.Add(new List<Func<Task>>());
+            workload.Add(new List<Func<Task<bool>>>());
         
         var rand = new Random();
 
@@ -83,17 +83,17 @@ public class TpccWorkloadGenerator
             {
                 var req = GenerateNewOrderRequest(rand, homeWarehouse);
                 // Capture the 'client' and 'req' in the lambda
-                workload[homeWarehouse].Add(async () => { await client.NewOrderAsync(req); });
+                workload[homeWarehouse].Add(async () => (await client.NewOrderAsync(req)).Success);
             }
             else if (choice <= 0.96)
             {
                 var req = GeneratePaymentRequest(rand, homeWarehouse);
-                workload[homeWarehouse].Add(async () => { await client.PaymentAsync(req); });
+                workload[homeWarehouse].Add(async () => (await client.PaymentAsync(req)).Success);
             }
             else
             {
                 var req = GenerateOrderStatusRequest(rand, homeWarehouse);
-                workload[homeWarehouse].Add(async () => { await client.OrderStatusAsync(req); });
+                workload[homeWarehouse].Add(async () => (await client.OrderStatusAsync(req)).Success);
             }
         }
 
@@ -116,7 +116,7 @@ public class TpccWorkloadGenerator
 
         for (int i = 0; i < ol_cnt; i++)
         {
-            int item_id = TpccConstants.GetItemId(rand); // Always valid now
+            int item_id = TpccConstants.GetItemId(rand);
             int supply_w_id;
 
             // 1% of items are from a remote warehouse

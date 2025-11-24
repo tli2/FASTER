@@ -75,7 +75,7 @@ public class Program
 
     private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
-        Console.WriteLine($"Populating databases...");
+        Console.WriteLine("Populating databases...");
         var stopwatch = Stopwatch.StartNew();
         var items = TpccWorkloadGenerator.GenerateItems(new Random());
         var connections = new ConcurrentDictionary<int, GrpcChannel>();
@@ -136,10 +136,10 @@ public class Program
                     {
                         await rateLimiter.WaitAsync();
                         var startTime = stopwatch.ElapsedTicks;
-                        await w();
+                        var success = await w();
                         Interlocked.Increment(ref transactionsProcessed);
                         var latency = stopwatch.ElapsedTicks - startTime;
-                        measurements.Enqueue((startTime, latency));
+                        measurements.Enqueue((startTime, success ? latency : -latency));
                         rateLimiter.Release();
                     }
                     catch (RpcException ex)

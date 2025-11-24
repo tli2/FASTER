@@ -473,7 +473,14 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         }
         else
         {
+            Console.WriteLine($"Aborting txn {txnId}");
+
             await AbortWrapper(txn);
+            s = bg.so.DetachFromWorkerAndPauseAction();
+            if (!bg.so.settings.speculative)
+                await s.SpeculationBarrier(bg.so.GetDprFinder());
+            // TODO(Tianyu): Unclear if this is safe to send speculatively, but since we are calling blockingly before retry, it should be.
+            // TODO(Tianyu): Send in parallel
             foreach (var v in tasksToWait)
             {
                 await v.Item1.AbortRemoteParticipantAsync(new AbortRemoteParticipantRequest
@@ -482,6 +489,8 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
                     TxnId = txnId
                 });
             }
+            if (!await bg.so.TryMergeAndStartActionAsync(s))
+                throw new DprSessionRolledBackException(s.WorldLine);
         }
 
         return success;
@@ -635,9 +644,11 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         var txn = bg.so.StartTransaction(transactionId);
 
         var scanKey = new OrderKey((byte)request.WId, (byte)request.DId, request.CId, int.MaxValue);
-        var max = bg.so.orders.StartingWith(scanKey, true).Select(e => e.Value).FirstOrDefault((Order) null);
+        var max = bg.so.orders.StartingWith(scanKey, true).Select(e => e.Value).FirstOrDefault((Order)null);
         // If null, the order table is empty. Otherwise, the customer has no orders 
         if (max == null || max.oCId != request.CId || max.oDId != request.DId || max.oWId != request.WId)
+        {
+            await CommitWrapper(txn);
             return new OrderStatusResponse
             {
                 Success = true,
