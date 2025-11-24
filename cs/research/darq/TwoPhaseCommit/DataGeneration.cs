@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Google.Protobuf.Collections;
 using protobuf;
 
 namespace TwoPhaseCommit;
@@ -12,9 +13,8 @@ public static class TpccConstants
     public const int NUM_ITEMS = 100000;
     public const int NUM_CUSTOMERS_PER_DISTRICT = 3000;
     public const int NUM_DISTRICTS_PER_WAREHOUSE = 10;
-    public const int TXN_MAX_RETRY = 10;
-
-
+    public const int TXN_MAX_RETRY = 4;
+    
     // NURand constants for specific fields
     private const int A_C_LAST = 255;
     private const int A_C_ID = 1023;
@@ -27,8 +27,8 @@ public static class TpccConstants
     private static readonly int C_C_ID = new Random().Next(0, A_C_ID + 1);
     private static readonly int C_OL_I_ID = new Random().Next(0, A_OL_I_ID + 1);
 
-    public static readonly double PAYMENT_REMOTE_PROB = 0.5;
-    public static readonly double ORDER_ITEM_REMOTE_PROB = 0.2;
+    public static readonly double PAYMENT_REMOTE_PROB = 1.0;
+    public static readonly double ORDER_ITEM_REMOTE_PROB = 1.0;
     
 
     // According to TPC-C standard
@@ -139,7 +139,6 @@ public class TpccWorkloadGenerator
                 Quantity = rand.Next(1, 11) // 1 to 10
             });
         }
-
         return request;
     }
 

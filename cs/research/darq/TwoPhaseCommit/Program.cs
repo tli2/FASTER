@@ -2,7 +2,6 @@
 using System.Diagnostics;
 using System.Net;
 using CommandLine;
-using FASTER.common;
 using FASTER.core;
 using FASTER.libdpr;
 using FASTER.libdpr.gRPC;
@@ -13,7 +12,6 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Grpc.Core;
-using Grpc.Core.Interceptors;
 using protobuf;
 
 namespace TwoPhaseCommit;
@@ -35,7 +33,7 @@ public class Options
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
-    [Option('w', "window", Required = false, Default = 64,
+    [Option('w', "window", Required = false, Default = 16,
         HelpText = "number of outstanding client requests allowed")]
     public int Window { get; set; }
     
@@ -55,7 +53,7 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        var environment = new KubernetesLocalStorageEnvironment(!options.Fail);
+        var environment = new KubernetesLocalStorageEnvironment();
 
         switch (options.Type.Trim())
         {
@@ -123,8 +121,6 @@ public class Program
         var measurements = new ConcurrentQueue<(long, long)>();
         var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
         
-        
-        
         for (var i = 0; i < workload.Count; i++)
         {
             var warehouse = workload[i];
@@ -187,8 +183,13 @@ public class Program
         foreach (var (startTime, latency) in measurements)
         {
             if (latency < 0)
+            {
                 aborted++;
-            streamWriter.WriteLine($"{startTime}, {1000.0 * latency / Stopwatch.Frequency}");
+                streamWriter.WriteLine($"{startTime}, 0");
+
+            }
+            else
+                streamWriter.WriteLine($"{startTime}, {1000.0 * latency / Stopwatch.Frequency}");
         }
         streamWriter.WriteLine($"Aborted: {aborted} out of {measurements.Count}");
         await streamWriter.FlushAsync();

@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Concurrent.Extended;
 using System.Diagnostics;
-using System.Transactions;
 using FASTER.common;
 using FASTER.core;
 using FASTER.darq;
@@ -53,7 +52,7 @@ public class TpccShard : StateObject
     }
 
     // guarantees unique txnId across shards and that transactions from different warehouses can interleave in order
-    internal long GetNextTransactionId() => Interlocked.Increment(ref timestamp.value) << 8 | Me().guid;
+    internal long GetNextTransactionId() => (Interlocked.Increment(ref timestamp.value) << 8) | Me().guid;
 
     public TransactionContext StartTransaction(long txnId)
     {
@@ -111,6 +110,7 @@ public class TpccShard : StateObject
 
     private unsafe void ReplayLog()
     {
+        Console.WriteLine("Replaying Log...");
         var it = log.Scan(0, log.TailAddress);
         while (it.UnsafeGetNext(out var b, out _, out _, out _))
         {
@@ -213,6 +213,16 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         this.bg = bg;
     }
 
+    private async Task BackoffWrapper(int i)
+    {
+        var s = bg.so.DetachFromWorkerAndPauseAction();
+        var baseDelay = TimeSpan.FromMilliseconds(Math.Pow(2, i + 3));
+        var jitter = Random.Shared.Next(0, 30); 
+        await Task.Delay(baseDelay + TimeSpan.FromMilliseconds(jitter));
+        if (!await bg.so.TryMergeAndStartActionAsync(s))
+            throw new DprSessionRolledBackException(bg.so.WorldLine());
+    }
+    
     private async ValueTask AbortWrapper(TransactionContext txn)
     {
         var v = bg.so.Abort(txn);
@@ -315,22 +325,29 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         s.sQuantity = newQuantity;
         return true;
     }
-    
+
     private GrpcChannel GetChannelForWarehouse(byte wId) => bg.so.channels[wId % bg.so.channels.Count];
 
     public override async Task<NewOrderResponse> NewOrder(NewOrderRequest request, ServerCallContext context)
     {
         var txnId = bg.so.GetNextTransactionId();
+        // Console.WriteLine($"Got New Order txn {txnId}");
         for (var i = 0; i < TpccConstants.TXN_MAX_RETRY; i++)
         {
             if (await NewOrderInternal(request, txnId))
+            {
+                // Console.WriteLine($"New Order txn {txnId} succeeded");
                 return new NewOrderResponse
                 {
                     Success = true
                 };
-            await Task.Yield();
+            }
+
+            // Console.WriteLine($"New Order txn {txnId} retrying");
+            await BackoffWrapper(i);
         }
 
+        // Console.WriteLine($"New Order txn {txnId} failed");
         return new NewOrderResponse
         {
             Success = false
@@ -342,17 +359,19 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         var txn = bg.so.StartTransaction(txnId);
         var w = bg.so.warehouses[(byte)request.WId];
         if (!await TryAccessReadWrapper(txn, w)) return false;
+        
+        var d = bg.so.districts[new DistrictKey((byte)request.WId, (byte)request.DId)];
+        if (!await TryAccessWriteWrapper(txn, d)) return false;
 
         var c = bg.so.customers[new CustomerKey((byte)request.WId, (byte)request.DId, request.CId)];
         if (!await TryAccessReadWrapper(txn, c)) return false;
-
-        var d = bg.so.districts[new DistrictKey((byte)request.WId, (byte)request.DId)];
-        if (!await TryAccessWriteWrapper(txn, d)) return false;
 
         await bg.so.log.EnqueueAsync(
             LogRecords.CreateUpdateNextOrderIdRecord(txn.Id(), (byte)request.WId, (byte)request.DId));
         var oId = d.dNextOrderId++;
         txn.AddUndoAction(() => d.dNextOrderId = oId);
+
+        // Console.WriteLine($"txn {txnId} acquired order id {oId}");
 
         var newOrderKey = new OrderKey((byte)request.WId, (byte)request.DId, request.CId, oId);
         var newOrder = new Order
@@ -366,14 +385,15 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             oOLCnt = request.Items.Count,
             oAllLocal = 0,
         };
-        
+
         // Should always succeed synchronously as it is a new row
-        var acquireResult = txn.TryAccessWrite(newOrder);
-        Debug.Assert(acquireResult.IsCompleted && acquireResult.Result);
-        
+        await TryAccessWriteWrapper(txn, newOrder);
+
         await EnqueueWrapper(LogRecords.CreateInsertOrderRecord(txn.Id(), newOrder));
         txn.AddUndoAction(() => bg.so.orders.TryRemove(newOrderKey));
         bg.so.orders.TryAdd(new OrderKey((byte)request.WId, (byte)request.DId, request.CId, oId), newOrder);
+        
+        // Console.WriteLine($"txn {txnId} added new order");
 
         List<RemoteOrderRequest> requestsToShards = null;
         var remote = false;
@@ -397,12 +417,13 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
                             TxnId = txn.Id()
                         });
                 }
+
                 var r = requestsToShards[ol.WSupplyingId % bg.so.channels.Count];
                 r.Items.Add(ol);
             }
             else if (!await UpdateStock(txn, ol))
                 return false;
-
+            
             var olKey = new OrderLineKey((byte)request.WId, (byte)request.DId, oId, (byte)i);
             var newOrderLine = new OrderLine
             {
@@ -416,20 +437,22 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
                 olQuantity = ol.Quantity,
                 olAmount = ol.Quantity * item.iPrice
             };
-            acquireResult = txn.TryAccessWrite(newOrderLine);
-            Debug.Assert(acquireResult.IsCompleted && acquireResult.Result);
-
+            await TryAccessWriteWrapper(txn, newOrderLine);
             await EnqueueWrapper(
                 LogRecords.CreateInsertOrderLineRecord(txn.Id(), newOrderLine));
             txn.AddUndoAction(() => bg.so.orderLines.TryRemove(olKey));
             bg.so.orderLines.TryAdd(olKey, newOrderLine);
         }
+        
+        // Console.WriteLine($"txn {txnId} completed local portion");
 
         if (!remote)
         {
             await CommitWrapper(txn);
             return true;
         }
+
+        // Console.WriteLine($"txn {txnId} starting remote portion");
 
         await StartTwoPCWrapper(txn);
         var s = bg.so.DetachFromWorkerAndPauseAction();
@@ -447,12 +470,14 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
             tasksToWait.Add((client, client.RemoteOrderAsync(requestsToShards[i]).ResponseAsync));
         }
 
+        // Console.WriteLine($"txn {txnId} remote portions sent");
         await Task.WhenAll(tasksToWait.Select(t => t.Item2));
         var success = tasksToWait.Select(t => t.Item2.Result).All(r => r.Success);
 
         if (!await bg.so.TryMergeAndStartActionAsync(s))
             throw new DprSessionRolledBackException(s.WorldLine);
 
+        // Console.WriteLine($"txn {txnId} votes gathered");
         if (success)
         {
             await CommitWrapper(txn);
@@ -473,7 +498,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         }
         else
         {
-            Console.WriteLine($"Aborting txn {txnId}");
+            // Console.WriteLine($"Aborting txn {txnId}");
 
             await AbortWrapper(txn);
             s = bg.so.DetachFromWorkerAndPauseAction();
@@ -517,27 +542,34 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         c.cPaymentCnt++;
         return true;
     }
-    
+
     public override async Task<PaymentResponse> Payment(PaymentRequest request, ServerCallContext context)
     {
         var txnId = bg.so.GetNextTransactionId();
+        // Console.WriteLine($"Got New Order txn {txnId}");
         for (var i = 0; i < TpccConstants.TXN_MAX_RETRY; i++)
         {
             if (await PaymentInternal(request, txnId))
+            {
+                // Console.WriteLine($"txn {txnId} succeeded");
                 return new PaymentResponse
                 {
                     Success = true
                 };
-            await Task.Yield();
+            }
+
+            // Console.WriteLine($"txn {txnId} retrying");
+            await BackoffWrapper(i);
         }
 
+        // Console.WriteLine($"txn {txnId} failed");
         return new PaymentResponse
         {
             Success = false
         };
     }
 
-    
+
     public async Task<bool> PaymentInternal(PaymentRequest request, long txnId)
     {
         var txn = bg.so.StartTransaction(txnId);
@@ -560,17 +592,20 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         txn.AddUndoAction(() => d.dYtd = dYtd);
         d.dYtd += request.Amount;
 
+        // Console.WriteLine($"txn {txnId} local portion succeeded");
+
         if (bg.so.warehouses.ContainsKey((byte)request.CwId))
         {
             // This is a local transaction
             var c = bg.so.customers[new CustomerKey((byte)request.CwId, (byte)request.CdId, request.CId)];
             if (!await UpdateCustomer(txn, c, request.Amount)) return false;
-
             // Skip the insert into history because it's never read in the workload
 
             await CommitWrapper(txn);
             return true;
         }
+
+        // Console.WriteLine($"txn {txnId} starting remote portion");
 
         // Start 2pc code path
         await StartTwoPCWrapper(txn);
@@ -600,7 +635,6 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         {
             await CommitWrapper(txn);
             s = bg.so.DetachFromWorker();
-
             // Asynchronously notify the remote warehouse of the outcome
             Task.Run(async () =>
             {
@@ -625,14 +659,18 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
     public override async Task<OrderStatusResponse> OrderStatus(OrderStatusRequest request, ServerCallContext context)
     {
         var txnId = bg.so.GetNextTransactionId();
+        // Console.WriteLine($"Got Order Status txn {txnId}");
+
         for (var i = 0; i < TpccConstants.TXN_MAX_RETRY; i++)
         {
             var result = await OrderStatusInternal(request, txnId);
+            // Console.WriteLine($"Order Status txn {txnId} successful");
             if (result.Success)
                 return result;
-            await Task.Yield();
+            await BackoffWrapper(i);
         }
 
+        // Console.WriteLine($"Order Status txn {txnId} failed");
         return new OrderStatusResponse
         {
             Success = false
@@ -656,7 +694,8 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
                 OId = -1,
                 WId = -1
             };
-        
+        }
+
         if (!await TryAccessReadWrapper(txn, max))
         {
             return new OrderStatusResponse
@@ -701,19 +740,26 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
     {
         // We shouldn't get duplicate requests with presumed aborts
         Debug.Assert(!bg.so.activeTransactions.TryGetValue(request.TxnId, out _));
-
+        
+        // Console.WriteLine($"Executing Remote Order txn {request.TxnId}");
         var txn = bg.so.StartTransaction(request.TxnId);
         foreach (var t in request.Items)
         {
             if (!await UpdateStock(txn, t))
+            {
+                // Console.WriteLine($"Remote Order txn {request.TxnId} conflicts and is aborting");
+
                 return new RemoteOrderResponse
                 {
                     Success = false
                 };
+            }
         }
 
+        // Console.WriteLine($"Remote Order txn {request.TxnId} preparing");
         // Implicitly assume that the coordinator asks us to prepare and vote yes
         await PrepareWrapper(txn);
+        // Console.WriteLine($"Remote Order txn {request.TxnId} voting yes");
         return new RemoteOrderResponse
         {
             Success = true
@@ -726,18 +772,24 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
         // We shouldn't get duplicate requests with presumed aborts
         Debug.Assert(!bg.so.activeTransactions.TryGetValue(request.TxnId, out _));
 
+        // Console.WriteLine($"Executing Remote Payment txn {request.TxnId}");
+
         var txn = bg.so.StartTransaction(request.TxnId);
-        ;
+
         var c = bg.so.customers[new CustomerKey((byte)request.CwId, (byte)request.CdId, request.CId)];
         if (!await UpdateCustomer(txn, c, request.Amount))
+        {
+            // Console.WriteLine($"Remote Payment txn {request.TxnId} conflicts and is aborting");
             return new RemotePaymentResponse
             {
                 Success = false
             };
+        }
 
+        // Console.WriteLine($"Remote Payment txn {request.TxnId} preparing");
         // Implicitly assume that the coordinator asks us to prepare and vote yes
         await PrepareWrapper(txn);
-
+        // Console.WriteLine($"Remote Payment txn {request.TxnId} voting yes");
         return new RemotePaymentResponse
         {
             Success = true
@@ -747,6 +799,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
     public override async Task<CommitRemoteParticipantResponse> CommitRemoteParticipant(
         CommitRemoteParticipantRequest request, ServerCallContext context)
     {
+        // Console.WriteLine($"Commiting Remote txn {request.TxnId}");
         if (!bg.so.activeTransactions.TryGetValue(request.TxnId, out var txn))
             return new CommitRemoteParticipantResponse();
         Debug.Assert(txn.Prepared());
@@ -757,6 +810,7 @@ public class TpccShardServiceImpl : TpccShardService.TpccShardServiceBase
     public override async Task<AbortRemoteParticipantResponse> AbortRemoteParticipant(
         AbortRemoteParticipantRequest request, ServerCallContext context)
     {
+        // Console.WriteLine($"Aborting Remote txn {request.TxnId}");
         if (!bg.so.activeTransactions.TryGetValue(request.TxnId, out var txn))
             return new AbortRemoteParticipantResponse();
         await AbortWrapper(txn);

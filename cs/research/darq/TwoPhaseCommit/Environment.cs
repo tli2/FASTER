@@ -74,14 +74,8 @@ public class LocalDebugEnvironment : IEnvironment
 
 public class KubernetesLocalStorageEnvironment : IEnvironment
 {
-    private bool cleanStart;
-    
     public int GetNumShards() => 4;
     
-    public KubernetesLocalStorageEnvironment(bool cleanStart)
-    {
-        this.cleanStart = cleanStart;
-    }
     
     public string GetShardConnString(int index)
     {
@@ -98,15 +92,13 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
             new DefaultCheckpointNamingScheme($"/mnt/plrs/participant{options.WorkerName}"), removeOutdated: false);
-        if (cleanStart)
-            result.PurgeAll();
+        result.PurgeAll();
         return result;
     }
 
     public IDevice GetShardDevice(Options options)
     {
-        if (cleanStart)
-            NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/participant{options.WorkerName}.log");
+        NativeStorageDevice.RemoveIfPresent($"/mnt/plrs/participant{options.WorkerName}.log");
         return new NativeStorageDevice($"/mnt/plrs/participant{options.WorkerName}.log");
     }
 
@@ -116,11 +108,8 @@ public class KubernetesLocalStorageEnvironment : IEnvironment
 
     public PingPongDevice GetDprFinderDevice()
     {
-        if (cleanStart)
-        {
-            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
-            NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
-        }
+        NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder1");
+        NativeStorageDevice.RemoveIfPresent("/mnt/plrs/finder2");
 
         var device1 = new NativeStorageDevice("/mnt/plrs/finder1");
         var device2 = new NativeStorageDevice("/mnt/plrs/finder2");
