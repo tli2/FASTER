@@ -46,9 +46,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: AZURE_TABLE_CONN_STRING
-              value: "{{ .Values.conn_string }}"
+              value: "{{ $.Values.conn_string }}"
             - name: AZURE_RESULTS_CONN_STRING
-              value: "{{ .Values.results_conn_string }}"
+              value: "{{ $.Values.results_conn_string }}"
       nodeSelector:
         nodepool: dsebench
       restartPolicy: Always
