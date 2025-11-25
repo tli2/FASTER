@@ -5,7 +5,8 @@ metadata:
 spec:
   template:
     spec:
-      serviceAccountName: deployment-watcher
+      # UPDATED: Uses the defined ServiceAccount
+      serviceAccountName: dse-runner
       initContainers:
         - name: wait-all
           image: bitnami/kubectl
@@ -24,8 +25,12 @@ spec:
                 fi;
               done;
       containers:
-        - command:
-            - "TwoPhaseCommitOrleans/TwoPhaseCommitOrleans"
+        - name: client
+          image: tianyuli96/faster:latest
+          # ADDED: workingDir so the command finds the file
+          workingDir: "/app/TwoPhaseCommitOrleans"
+          command:
+            - "./TwoPhaseCommitOrleans"
           args:
             - "-t"
             - "client"
@@ -35,8 +40,6 @@ spec:
             - '{{ $.Values.num_silos}}'
             - "-o"
             - "2pc-orleans-results-{{.Values.tag}}.txt"
-          image: tianyuli96/faster:latest
-          name: client
           ports:
             - containerPort: 15721
           env:

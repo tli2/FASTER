@@ -14,16 +14,18 @@ spec:
       labels:
         app: orleans-silos
         silo-id: "{{ . }}"
-
         orleans/serviceId: "tpcc-benchmark-service"
         orleans/clusterId: "tpcc-cluster"
     spec:
-      serviceAccountName: orleans-pod-updater
+      # UPDATED: Uses the defined ServiceAccount
+      serviceAccountName: dse-runner
       containers:
         - name: silo{{ . }}
           image: tianyuli96/faster:latest
+          # ADDED: workingDir so the command finds the file
+          workingDir: "/app/TwoPhaseCommitOrleans"
           command:
-            - "TwoPhaseCommitOrleans/TwoPhaseCommitOrleans"
+            - "./TwoPhaseCommitOrleans"
           args:
             - "-t"
             - "silo"

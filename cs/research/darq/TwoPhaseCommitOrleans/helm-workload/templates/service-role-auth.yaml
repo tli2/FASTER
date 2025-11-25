@@ -1,29 +1,32 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: pod-updater
+  name: dse-runner
   namespace: dse
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: pod-updater
+  name: dse-runner-role
   namespace: dse
 rules:
-  - apiGroups: [ "" ]
-    resources: [ "pods" ]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
     verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: orleans-pod-updater
+  name: dse-runner-binding
   namespace: dse
 subjects:
   - kind: ServiceAccount
-    name: pod-updater
+    name: dse-runner
     namespace: dse
 roleRef:
   kind: Role
-  name: orleans-pod-updater
+  name: dse-runner-role
   apiGroup: rbac.authorization.k8s.io
