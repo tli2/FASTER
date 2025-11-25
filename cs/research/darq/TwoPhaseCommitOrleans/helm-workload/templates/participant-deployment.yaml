@@ -22,8 +22,11 @@ spec:
       containers:
         - name: silo{{ . }}
           image: tianyuli96/faster:latest
-          command: ["./TwoPhaseCommitOrleans", "-t", "participant"]
-          workingDir: "/app/TwoPhaseCommitOrleans"
+          command:
+            - "TwoPhaseCommitOrleans/TwoPhaseCommitOrleans"
+          args:
+            - "-t"
+            - "silo"
           ports:
             - containerPort: 11111
               name: silo-port
