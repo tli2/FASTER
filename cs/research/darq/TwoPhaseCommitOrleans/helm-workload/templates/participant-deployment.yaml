@@ -18,7 +18,7 @@ spec:
         orleans/serviceId: "tpcc-benchmark-service"
         orleans/clusterId: "tpcc-cluster"
     spec:
-      serviceAccountName: deployment-watcher
+      serviceAccountName: orleans-pod-updater
       containers:
         - name: silo{{ . }}
           image: tianyuli96/faster:latest
