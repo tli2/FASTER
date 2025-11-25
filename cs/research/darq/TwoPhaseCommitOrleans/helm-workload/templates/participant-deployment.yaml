@@ -29,9 +29,6 @@ spec:
               name: silo-port
             - containerPort: 30000
               name: gateway-port
-          envFrom:
-            - configMapRef:
-                name: env-config
           env:
             - name: POD_IP
               valueFrom:
@@ -46,7 +43,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: AZURE_TABLE_CONN_STRING
-              value: "{{ $.Values.conn_string }}"
+              value: "{{ $.Values.azure_table_conn_string }}"
             - name: AZURE_RESULTS_CONN_STRING
               value: "{{ $.Values.results_conn_string }}"
       nodeSelector:

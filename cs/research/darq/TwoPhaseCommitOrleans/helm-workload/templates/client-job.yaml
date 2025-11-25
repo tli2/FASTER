@@ -39,7 +39,9 @@ spec:
           name: client
           ports:
             - containerPort: 15721
-          envFrom:
-            - configMapRef:
-                name: env-config
+          env:
+            - name: AZURE_TABLE_CONN_STRING
+              value: "{{ $.Values.azure_table_conn_string }}"
+            - name: AZURE_RESULTS_CONN_STRING
+              value: "{{ $.Values.results_conn_string }}"
       restartPolicy: Never
