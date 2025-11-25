@@ -31,7 +31,7 @@ public class Options
         HelpText = "number of silos to run")]
     public int NumSilos { get; set; }
 
-    [Option('t', "num-transactions", Required = false, Default = 100000,
+    [Option('x', "num-transactions", Required = false, Default = 10000,
         HelpText = "number of total transactions to run")]
     public int NumTransactions { get; set; }
 }
