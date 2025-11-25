@@ -87,6 +87,11 @@ public class BulkLoaderWorker : Grain, IBulkLoaderWorker
 {
     private readonly IGrainFactory grains;
     
+    public BulkLoaderWorker(IGrainFactory grains)
+    {
+        this.grains = grains;
+    }
+    
     public async Task LoadData(int seed, List<int> assignedWarehouses, List<Item> items)
     {
         var rand = new Random(seed);
