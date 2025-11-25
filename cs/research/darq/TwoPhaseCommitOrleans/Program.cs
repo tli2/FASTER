@@ -91,7 +91,7 @@ public class Program
         
         Console.WriteLine($"Pre-generating {options.NumTransactions} transactions...");
         stopwatch.Restart();
-        var workload = TpccWorkloadGenerator.GenerateWorkload(client, TpccConstants.NUM_WAREHOUSES, options.NumTransactions);
+        var workload = TpccWorkloadGenerator.GenerateWorkload(client, options.NumTransactions);
         Console.WriteLine($"Generation complete in {stopwatch.Elapsed.TotalSeconds:F2}s");
         
         Console.WriteLine($"Executing workload...");

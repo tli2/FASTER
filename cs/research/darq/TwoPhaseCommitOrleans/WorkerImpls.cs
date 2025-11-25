@@ -121,7 +121,7 @@ public class BulkLoaderWorker : Grain, IBulkLoaderWorker
                     YtdSales = 30000.0,
                     NextOrderId = 1
                 });
-                await Parallel.ForAsync(0, TpccConstants.NUM_CUSTOMERS_PER_DISTRICT, parallelOptions, async (c, _) =>
+                await Parallel.ForAsync(1, TpccConstants.NUM_CUSTOMERS_PER_DISTRICT + 1, parallelOptions, async (c, _) =>
                 {
                     await grains.GetGrain<ICustomerGrain>($"{w}-{d}-{c}").Create(new Customer
                     {

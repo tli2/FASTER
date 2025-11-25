@@ -12,8 +12,6 @@ public static class TpccConstants
     public const int NUM_ITEMS = 100000;
     public const int NUM_CUSTOMERS_PER_DISTRICT = 3000;
     public const int NUM_DISTRICTS_PER_WAREHOUSE = 10;
-    public const int TXN_MAX_RETRY = 10;
-
 
     // NURand constants for specific fields
     private const int A_C_LAST = 255;
@@ -27,8 +25,8 @@ public static class TpccConstants
     private static readonly int C_C_ID = new Random().Next(0, A_C_ID + 1);
     private static readonly int C_OL_I_ID = new Random().Next(0, A_OL_I_ID + 1);
 
-    public static readonly double PAYMENT_REMOTE_PROB = 0.5;
-    public static readonly double ORDER_ITEM_REMOTE_PROB = 0.2;
+    public static readonly double PAYMENT_REMOTE_PROB = 1.0;
+    public static readonly double ORDER_ITEM_REMOTE_PROB = 1.0;
     
 
     // According to TPC-C standard
@@ -62,33 +60,33 @@ public static class TpccConstants
 /// </summary>
 public class TpccWorkloadGenerator
 {
-    public static List<Func<Task>> GenerateWorkload(IClusterClient client, int numWarehouses, long numTransactions)
+    public static List<Func<Task>> GenerateWorkload(IClusterClient client, long numTransactions)
     {
         var workload = new List<Func<Task>>((int)numTransactions);
         var rand = new Random();
 
         for (long i = 0; i < numTransactions; i++)
         {
-            var homeWarehouse = (byte) rand.Next(1, numWarehouses + 1);
+            var homeWarehouse = (byte) rand.Next(0, TpccConstants.NUM_WAREHOUSES);
 
             // Find the correct client for this transaction's home warehouse
             int choice = rand.Next(1, 101);
             
             if (choice <= 49)
-                workload.Add(GenerateNewOrderRequest(client, rand, homeWarehouse, numWarehouses));
+                workload.Add(GenerateNewOrderRequest(client, rand, homeWarehouse));
             else if (choice <= 96)
-                workload.Add(GeneratePaymentRequest(client, rand, homeWarehouse, numWarehouses));
+                workload.Add(GeneratePaymentRequest(client, rand, homeWarehouse));
             else
-                workload.Add(GeneratePaymentRequest(client, rand, homeWarehouse, numWarehouses));
+                workload.Add(GenerateOrderStatusRequest(client, rand, homeWarehouse));
         }
 
         return workload;
     }
 
-    private static Func<Task> GenerateNewOrderRequest(IClusterClient client, Random rand, int homeWarehouseId, int numWarehouses)
+    private static Func<Task> GenerateNewOrderRequest(IClusterClient client, Random rand, int homeWarehouseId)
     {
         int w_id = homeWarehouseId;
-        int d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+        int d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         int c_id = TpccConstants.GetCustomerId(rand);
         int ol_cnt = rand.Next(5, 16); // 5 to 15 items
         var ols = new List<OrderLine>(ol_cnt);
@@ -99,11 +97,11 @@ public class TpccWorkloadGenerator
             int supply_w_id;
 
             // 1% of items are from a remote warehouse
-            if (rand.NextDouble() <= TpccConstants.ORDER_ITEM_REMOTE_PROB && numWarehouses > 1)
+            if (rand.NextDouble() <= TpccConstants.ORDER_ITEM_REMOTE_PROB && TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE > 1)
             {
                 do
                 {
-                    supply_w_id = rand.Next(1, numWarehouses + 1);
+                    supply_w_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
                 } while (supply_w_id == w_id);
             }
             else
@@ -125,21 +123,21 @@ public class TpccWorkloadGenerator
         };
     }
 
-    private static Func<Task> GeneratePaymentRequest(IClusterClient client, Random rand, int homeWarehouseId, int numWarehouses)
+    private static Func<Task> GeneratePaymentRequest(IClusterClient client, Random rand, int homeWarehouseId)
     {
         int w_id = homeWarehouseId;
-        int d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+        int d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         int c_w_id, c_d_id;
 
         // 15% of payments are for a remote warehouse
-        if (rand.NextDouble() <= TpccConstants.PAYMENT_REMOTE_PROB && numWarehouses > 1)
+        if (rand.NextDouble() <= TpccConstants.PAYMENT_REMOTE_PROB && TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE > 1)
         {
             do
             {
-                c_w_id = rand.Next(1, numWarehouses + 1);
+                c_w_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
             } while (c_w_id == w_id);
 
-            c_d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+            c_d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         }
         else
         {
@@ -159,7 +157,7 @@ public class TpccWorkloadGenerator
     private static Func<Task> GenerateOrderStatusRequest(IClusterClient client, Random rand, int homeWarehouseId)
     {
         int w_id = homeWarehouseId;
-        int d_id = rand.Next(1, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE + 1);
+        int d_id = rand.Next(0, TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE);
         int c_id = TpccConstants.GetCustomerId(rand);
 
         return async () =>
@@ -171,7 +169,7 @@ public class TpccWorkloadGenerator
     public static List<Item> GenerateItems(Random rand)
     {
         var result = new List<Item>();
-        for (var i = 0; i < TpccConstants.NUM_ITEMS; i++)
+        for (var i = 1; i < TpccConstants.NUM_ITEMS + 1; i++)
         {
             result.Add(new Item
             {
