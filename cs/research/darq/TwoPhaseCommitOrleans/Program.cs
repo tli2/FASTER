@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Orleans;
+using Orleans.Configuration;
 using Orleans.Hosting;
 using Orleans.Runtime.Placement;
 using TwoPhaseCommitOrleans;
@@ -67,6 +68,11 @@ public class Program
             var connString = Environment.GetEnvironmentVariable("AZURE_TABLE_CONN_STRING");
             var tableServiceClient = new TableServiceClient(connString);
             cl.UseAzureStorageClustering(op => op.TableServiceClient = tableServiceClient);
+            cl.Configure<ClientMessagingOptions>(opts => 
+            {
+                // Increase timeout to 10 minutes (or however long bulk load needs)
+                opts.ResponseTimeout = TimeSpan.FromMinutes(10); 
+            });
         });
         
         var host = builder.Build();
