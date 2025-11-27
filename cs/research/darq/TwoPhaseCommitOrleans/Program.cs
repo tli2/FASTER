@@ -183,7 +183,7 @@ public class Program
 
             var tableServiceClient = new TableServiceClient(connString);
             silo.UseAzureStorageClustering(op => op.TableServiceClient = tableServiceClient);
-            silo.AddMemoryGrainStorage("DevStore");
+            silo.AddMemoryGrainStorage("TransactionStore");
 
             // silo.AddAzureTableTransactionalStateStorage("TransactionStore", op =>
                 // op.TableServiceClient = tableServiceClient);
