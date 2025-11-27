@@ -6,7 +6,7 @@ namespace TwoPhaseCommitOrleans;
 [TpccPlacement]
 public interface IWarehouseGrain : IGrainWithStringKey
 {
-    [Transaction(TransactionOption.Supported)]
+    [Transaction(TransactionOption.CreateOrJoin)]
     [Alias("Create")]
     Task Create(Warehouse warehouse);
     
@@ -23,7 +23,7 @@ public interface IWarehouseGrain : IGrainWithStringKey
 [TpccPlacement]
 public interface IDistrictGrain : IGrainWithStringKey // WarehouseId + DistrictId
 {
-    [Transaction(TransactionOption.Supported)]
+    [Transaction(TransactionOption.CreateOrJoin)]
     [Alias("Create")]
     Task Create(District district);
     
@@ -45,7 +45,7 @@ public interface IDistrictGrain : IGrainWithStringKey // WarehouseId + DistrictI
 [TpccPlacement]
 public interface ICustomerGrain : IGrainWithStringKey // Warehouse + District + CustomerId
 {
-    [Transaction(TransactionOption.Supported)]
+    [Transaction(TransactionOption.CreateOrJoin)]
     [Alias("Create")]
     Task Create(Customer customer);
     
@@ -70,7 +70,7 @@ public interface ICustomerGrain : IGrainWithStringKey // Warehouse + District + 
 [TpccPlacement]
 public interface IStockGrain : IGrainWithStringKey // WarehouseId + ItemId
 {
-    [Transaction(TransactionOption.Supported)]
+    [Transaction(TransactionOption.CreateOrJoin)]
     [Alias("Create")]
     Task Create(Stock stock);
     
