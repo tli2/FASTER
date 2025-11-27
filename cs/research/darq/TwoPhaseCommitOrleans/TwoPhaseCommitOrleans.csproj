@@ -15,6 +15,7 @@
       <PackageReference Include="Microsoft.Orleans.Clustering.AzureStorage" Version="9.2.1" />
       <PackageReference Include="Microsoft.Orleans.Core" Version="9.2.1" />
       <PackageReference Include="Microsoft.Orleans.Hosting.Kubernetes" Version="9.2.1" />
+      <PackageReference Include="Microsoft.Orleans.Persistence.Memory" Version="9.2.1" />
       <PackageReference Include="Microsoft.Orleans.Transactions" Version="9.2.1" />
       <PackageReference Include="Microsoft.Orleans.Transactions.AzureStorage" Version="9.2.1" />
       <PackageReference Include="Orleans.Clustering.Kubernetes" Version="8.2.0" />
