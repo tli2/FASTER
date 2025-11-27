@@ -3,7 +3,6 @@ using Orleans.Transactions.Abstractions;
 
 namespace TwoPhaseCommitOrleans;
 
-// Example of one Entity Grain. Others follow identical pattern.
 public class WarehouseGrain : Grain, IWarehouseGrain
 {
     private readonly ITransactionalState<Warehouse> state;

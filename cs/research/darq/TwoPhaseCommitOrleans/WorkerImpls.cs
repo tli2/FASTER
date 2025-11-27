@@ -92,6 +92,7 @@ public class BulkLoaderWorker : Grain, IBulkLoaderWorker
         this.grains = grains;
     }
     
+    [Transaction(TransactionOption.Suppress)]
     public async Task LoadData(int seed, List<int> assignedWarehouses, List<Item> items)
     {
         var rand = new Random(seed);
