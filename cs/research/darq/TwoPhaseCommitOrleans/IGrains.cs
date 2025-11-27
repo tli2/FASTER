@@ -120,7 +120,7 @@ public interface IPaymentWorker : IGrainWithStringKey
 [TpccPlacement]
 public interface IBulkLoaderWorker : IGrainWithStringKey
 {
-    [Transaction(TransactionOption.Create)]
+    [Transaction(TransactionOption.Suppress)]
     [Alias("LoadData")]
     Task LoadData(int seed, List<int> assignedWarehouses, List<Item> items);
 }
