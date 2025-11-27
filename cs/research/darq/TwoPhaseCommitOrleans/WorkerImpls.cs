@@ -97,7 +97,7 @@ public class BulkLoaderWorker : Grain, IBulkLoaderWorker
     {
         var rand = new Random(seed);
 
-        var parallelOptions = new ParallelOptions {MaxDegreeOfParallelism = 32};
+        var parallelOptions = new ParallelOptions {MaxDegreeOfParallelism = 8};
         
         foreach (var w in assignedWarehouses)
         {
