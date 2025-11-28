@@ -104,6 +104,7 @@ public class Program
     private static async Task LaunchBenchmarkClient(Options options, IEnvironment environment)
     {
         Console.WriteLine("Parsing workload file...");
+        var latencyMode = options.Mode.Equals("latency");
         var timedRequests = new List<(long, ExecuteWorkflowRequest)>();
         foreach (var line in File.ReadLines(options.WorkloadTrace))
         {
@@ -133,7 +134,7 @@ public class Program
         for (var i = 0; i < timedRequests.Count; i++)
         {
             var request = timedRequests[i];
-            if (options.Mode.Equals("latency"))
+            if (latencyMode)
             {
                 while (stopwatch.ElapsedMilliseconds <= request.Item1)
                     Thread.Yield();
@@ -148,7 +149,7 @@ public class Program
                 await client.ExecuteWorkflowAsync(request.Item2);
                 var endTime = stopwatch.ElapsedMilliseconds;
                 // Console.WriteLine($"workflow id:{request.Item2.WorkflowId} has completed in {endTime - request.Item1} milliseconds");
-                measurements.Add(options.Mode.Equals("latency") ? endTime - request.Item1 : endTime - startTime);
+                measurements.Add(latencyMode ? endTime - request.Item1 : endTime - startTime);
                 rateLimiter.Release();
             });
         }

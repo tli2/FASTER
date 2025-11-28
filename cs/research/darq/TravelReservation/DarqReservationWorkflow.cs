@@ -150,7 +150,7 @@ public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         if (index == workflow.toExecute.Count)
         {
-            Console.WriteLine($"Workflow with id {workflow.id} completed successfully");
+            // Console.WriteLine($"Workflow with id {workflow.id} completed successfully");
             // We are done and there are no more reservations to make
             tcs.SetResult(true);
             return;
@@ -199,7 +199,7 @@ public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
     {
         if (index == -1)
         {
-            Console.WriteLine($"Workflow with id {workflow.id} completed with rollback");
+            // Console.WriteLine($"Workflow with id {workflow.id} completed with rollback");
             // We are done and there are no more reservations to make
             tcs.SetResult(false);
             return;
@@ -218,9 +218,9 @@ public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
                         channel.Intercept(new DprClientInterceptor(c.GetDprSession())))
                     : new FasterKVReservationService.FasterKVReservationServiceClient(channel);
 
-                Console.WriteLine($"Workflow with id {workflow.id} is cancelling reservation number {index}");
+                // Console.WriteLine($"Workflow with id {workflow.id} is cancelling reservation number {index}");
                 await client.CancelReservationAsync(workflow.toExecute[index]);
-                Console.WriteLine($"Workflow with id {workflow.id} has cancelled reservation number {index}");
+                // Console.WriteLine($"Workflow with id {workflow.id} has cancelled reservation number {index}");
                 var stepRequest = stepRequestPool.Checkout();
                 var requestBuilder = new StepRequestBuilder(stepRequest);
                 requestBuilder.MarkMessageConsumed(lsn);
