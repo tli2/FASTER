@@ -144,10 +144,11 @@ public class Program
             _ = Task.Run(async () =>
             {
                 // Console.WriteLine($"Issuing request to start workflow id:{request.Item2.WorkflowId}, request content: {request.Item2.Input.ToString(Encoding.UTF8)}");
+                var startTime = stopwatch.ElapsedMilliseconds;
                 await client.ExecuteWorkflowAsync(request.Item2);
                 var endTime = stopwatch.ElapsedMilliseconds;
                 // Console.WriteLine($"workflow id:{request.Item2.WorkflowId} has completed in {endTime - request.Item1} milliseconds");
-                measurements.Add(endTime - request.Item1);
+                measurements.Add(options.Mode.Equals("latency") ? endTime - request.Item1 : endTime - startTime);
                 rateLimiter.Release();
             });
         }
