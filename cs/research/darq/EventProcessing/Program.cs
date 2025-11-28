@@ -45,6 +45,10 @@ public class Options
     [Option('i', "checkpoint-interval", Required = false, Default = 10,
         HelpText = "checkpoint interval")]
     public int CheckpointInterval { get; set; }
+    
+    [Option('f', "fail", Required = false, Default = true,
+        HelpText = "Whether to force a rollback halfway through the workload")]
+    public bool Fail { get; set; }
 }
 
 public class Program
@@ -95,6 +99,15 @@ public class Program
         var stopwatch = new Stopwatch();
         var loader = new SearchListDataLoader(options.WorkloadTrace, client, 0, stopwatch);
         var numRecords = loader.LoadData();
+        if (options.Fail)
+        {
+            Task.Run(async () =>
+            {
+                var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
+                await Task.Delay(15000);
+                finder.ForceRollback();
+            });
+        }
         _ = Task.Run(loader.Run);
         var processingClient = new SpPubSubProcessorClient(3, client);
         var measurementProcessor = new SearchListLatencyMeasurementProcessor(stopwatch, client);

@@ -18,7 +18,7 @@ public class NewOrderWorker : Grain, INewOrderWorker
         var warehouse = grains.GetGrain<IWarehouseGrain>($"{wId}");
         await warehouse.GetState();
 
-        var district = grains.GetGrain<IDistrictGrain>($"{wId}-{dId}"); 
+        var district = grains.GetGrain<IDistrictGrain>($"{wId}-{dId}");
         await district.GetState();
         var orderId = await district.NextOrderId();
 
@@ -34,12 +34,12 @@ public class NewOrderWorker : Grain, INewOrderWorker
             EntryDate = DateTime.Now,
         };
 
-        for (var i = 0; i < orderLines.Count; i++ )
+        for (var i = 0; i < orderLines.Count; i++)
         {
             var ol = orderLines[i];
             var stock = grains.GetGrain<IStockGrain>($"{ol.SupplyWarehouseId}-{ol.ItemId}");
             await stock.ModifyStock(ol.Quantity);
-            
+
             order.Lines.Add(new OrderLine
             {
                 Number = i,
@@ -51,7 +51,7 @@ public class NewOrderWorker : Grain, INewOrderWorker
             });
         }
 
-        var orderGrain = grains.GetGrain<IOrderGrain>( $"{wId}-{dId}-{orderId}");
+        var orderGrain = grains.GetGrain<IOrderGrain>($"{wId}-{dId}-{orderId}");
         await orderGrain.Create(order);
 
         return orderId;
@@ -74,7 +74,7 @@ public class PaymentWorker : Grain, IPaymentWorker
         var warehouse = grains.GetGrain<IWarehouseGrain>($"{wId}");
         await warehouse.AddYtdSales(amount);
 
-        var district = grains.GetGrain<IDistrictGrain>($"{wId}-{dId}"); 
+        var district = grains.GetGrain<IDistrictGrain>($"{wId}-{dId}");
         await district.AddYtdSales(amount);
 
         var customer = grains.GetGrain<ICustomerGrain>($"{cWId}-{cDId}-{cId}");
@@ -86,58 +86,54 @@ public class PaymentWorker : Grain, IPaymentWorker
 public class BulkLoaderWorker : Grain, IBulkLoaderWorker
 {
     private readonly IGrainFactory grains;
-    
+
     public BulkLoaderWorker(IGrainFactory grains)
     {
         this.grains = grains;
     }
-    
-    [Transaction(TransactionOption.Suppress)]
-    public async Task LoadData(int seed, List<int> assignedWarehouses, List<Item> items)
+
+    public async Task LoadWarehouse(int seed, int assignedWarehouse, List<Item> items)
     {
         var rand = new Random(seed);
 
-        var parallelOptions = new ParallelOptions {MaxDegreeOfParallelism = 8};
-        
-        foreach (var w in assignedWarehouses)
-        {
-            await grains.GetGrain<IWarehouseGrain>($"{w}")
-                .Create(new Warehouse
-                {
-                    Id = w,
-                    YtdSales = 300000.0
-                });
+        var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = 32 };
 
-            await Parallel.ForEachAsync(items, parallelOptions, async (i, _) =>
+        await grains.GetGrain<IWarehouseGrain>($"{assignedWarehouse}")
+            .Create(new Warehouse
             {
-                await grains.GetGrain<IStockGrain>($"{w}-{i.Id}").Create(new Stock
-                {
-                    ItemId = i.Id,
-                    WarehouseId = w,
-                    Quantity = rand.Next(10, 101)
-                });
+                Id = assignedWarehouse,
+                YtdSales = 300000.0
             });
 
-            for (var d = 0; d < TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE; d++)
+        await Parallel.ForEachAsync(items, parallelOptions, async (i, _) =>
+        {
+            await grains.GetGrain<IStockGrain>($"{assignedWarehouse}-{i.Id}").Create(new Stock
             {
-                await grains.GetGrain<IDistrictGrain>($"{w}-{d}").Create(new District
+                ItemId = i.Id,
+                WarehouseId = assignedWarehouse,
+                Quantity = rand.Next(10, 101)
+            });
+        });
+
+        for (var d = 0; d < TpccConstants.NUM_DISTRICTS_PER_WAREHOUSE; d++)
+        {
+            await grains.GetGrain<IDistrictGrain>($"{assignedWarehouse}-{d}").Create(new District
+            {
+                Id = d,
+                WarehouseId = assignedWarehouse,
+                YtdSales = 30000.0,
+                NextOrderId = 1
+            });
+            await Parallel.ForAsync(1, TpccConstants.NUM_CUSTOMERS_PER_DISTRICT + 1, parallelOptions, async (c, _) =>
+            {
+                await grains.GetGrain<ICustomerGrain>($"{assignedWarehouse}-{d}-{c}").Create(new Customer
                 {
-                    Id = d,
-                    WarehouseId = w,
-                    YtdSales = 30000.0,
-                    NextOrderId = 1
+                    Id = c,
+                    DistrictId = d,
+                    WarehouseId = assignedWarehouse,
+                    Balance = -10.00,
                 });
-                await Parallel.ForAsync(1, TpccConstants.NUM_CUSTOMERS_PER_DISTRICT + 1, parallelOptions, async (c, _) =>
-                {
-                    await grains.GetGrain<ICustomerGrain>($"{w}-{d}-{c}").Create(new Customer
-                    {
-                        Id = c,
-                        DistrictId = d,
-                        WarehouseId = w,
-                        Balance = -10.00,
-                    });
-                });
-            }
+            });
         }
     }
 }

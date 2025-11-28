@@ -70,7 +70,6 @@ public class Program
             cl.UseAzureStorageClustering(op => op.TableServiceClient = tableServiceClient);
             cl.Configure<ClientMessagingOptions>(opts => 
             {
-                // Increase timeout to 10 minutes (or however long bulk load needs)
                 opts.ResponseTimeout = TimeSpan.FromMinutes(10); 
             });
         });
@@ -83,15 +82,10 @@ public class Program
         var stopwatch = Stopwatch.StartNew();
         var items = TpccWorkloadGenerator.GenerateItems(new Random());
         var loadTasks = new List<Task>();
-        for (var i = 0; i < options.NumSilos; i++)
-        {
-
-            var assignedWarehouseIds = new List<int>();;
-            for (var j = i; j < TpccConstants.NUM_WAREHOUSES; j += options.NumSilos)            
-                assignedWarehouseIds.Add(j);
-            
-            loadTasks.Add(client.GetGrain<IBulkLoaderWorker>($"{i}").LoadData(i, assignedWarehouseIds, items)); 
-        }
+        
+        for (var i = 0; i < TpccConstants.NUM_WAREHOUSES; i++)
+            loadTasks.Add(client.GetGrain<IBulkLoaderWorker>($"{i % options.NumSilos}").LoadWarehouse(i, i, items)); 
+        
         await Task.WhenAll(loadTasks);
         Console.WriteLine($"Populated {options.NumSilos} shards in {stopwatch.Elapsed.TotalSeconds:F2}s");
         

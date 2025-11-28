@@ -121,6 +121,6 @@ public interface IPaymentWorker : IGrainWithStringKey
 public interface IBulkLoaderWorker : IGrainWithStringKey
 {
     [Transaction(TransactionOption.Suppress)]
-    [Alias("LoadData")]
-    Task LoadData(int seed, List<int> assignedWarehouses, List<Item> items);
+    [Alias("LoadWarehouse")]
+    Task LoadWarehouse(int seed, int assignedWarehouse, List<Item> items);
 }
