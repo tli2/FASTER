@@ -168,8 +168,10 @@ public class Program
                 streamWriter.WriteLine(line);
         }
         streamWriter.WriteLine($"Throughput: {throughput}");
-        streamWriter.WriteLine($"Average latency: {measurements.Sum() / measurements.Count}");
-
+        var avg = measurements.Average();
+        streamWriter.WriteLine($"Average latency: {avg}");
+        streamWriter.WriteLine($"Latency std: {Math.Sqrt(measurements.Sum(x => (x - avg) * (x - avg)) / (measurements.Count - 1))}");
+        
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
         await environment.PublishResultsAsync(options.OutputFile, memoryStream);
