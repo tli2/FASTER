@@ -37,8 +37,7 @@ spec:
             {{- if $.Values.pubsub_speculative }}
             - "-s"
             {{- end }}
-          image: tianyuli96/faster:stable
-          imagePullPolicy: IfNotPresent
+          image: tianyuli96/faster:latest
           workingDir: "/app/EventProcessing/"
           name: pubsub{{ .num }}
           ports:

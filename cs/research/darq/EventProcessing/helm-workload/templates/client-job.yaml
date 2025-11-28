@@ -34,8 +34,7 @@ spec:
             - "/app/{{.Values.experiment}}/workloads/{{.Values.workload}}.txt"
             - "-o"
             - "{{.Values.experiment}}-{{.Values.workload}}-results-c{{.Values.checkpoint_interval}}{{.Values.tag}}"
-          image: tianyuli96/faster:stable
-          imagePullPolicy: IfNotPresent
+          image: tianyuli96/faster:latest
           workingDir: "/app/EventProcessing/"
           name: client
           ports:

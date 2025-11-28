@@ -41,7 +41,6 @@ public class Options
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
-    
     [Option('i', "checkpoint-interval", Required = false, Default = 10,
         HelpText = "checkpoint interval")]
     public int CheckpointInterval { get; set; }

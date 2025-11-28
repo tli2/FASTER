@@ -15,7 +15,6 @@ spec:
       initContainers:
         - name: wait-pubsub
           image: bitnami/kubectl
-          imagePullPolicy: IfNotPresent
           command: [ "sh", "-c" ]
           args:
             - >
@@ -39,7 +38,7 @@ spec:
             {{- if $.Values.processor_speculative }}
             - "-s"
             {{- end }}
-          image: tianyuli96/faster:stable
+          image: tianyuli96/faster:latest
           imagePullPolicy: IfNotPresent
           workingDir: "/app/EventProcessing/"
           name: {{ .name }}
