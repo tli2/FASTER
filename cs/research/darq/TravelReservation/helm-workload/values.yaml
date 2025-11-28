@@ -17,3 +17,4 @@ clients:
   - num: 0
 
 speculative: false
+mode: throughput

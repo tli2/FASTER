@@ -38,6 +38,10 @@ public class Options
     [Option('o', "output-file", Required = false,
         HelpText = "Name of file to output")]
     public string OutputFile { get; set; }
+    
+    [Option('m', "mode", Required = false,
+        HelpText = "Mode of benchmark (latency or throughput)")]
+    public string Mode { get; set; }
 
     [Option('n', "name", Required = false,
         HelpText = "identifier of the service to launch")]
@@ -129,8 +133,11 @@ public class Program
         for (var i = 0; i < timedRequests.Count; i++)
         {
             var request = timedRequests[i];
-            while (stopwatch.ElapsedMilliseconds <= request.Item1)
-                Thread.Yield();
+            if (options.Mode.Equals("latency"))
+            {
+                while (stopwatch.ElapsedMilliseconds <= request.Item1)
+                    Thread.Yield();
+            }
             var channel = channelPool[i % channelPool.Count];
             var client = new WorkflowOrchestrator.WorkflowOrchestratorClient(channel);
             await rateLimiter.WaitAsync();
@@ -147,15 +154,22 @@ public class Program
 
         while (measurements.Count != timedRequests.Count)
             await Task.Delay(5);
-        await WriteResults(options, environment, measurements);
+        var throughput = measurements.Count * 1000.0 / stopwatch.ElapsedMilliseconds;
+        await WriteResults(options, environment, measurements, throughput);
     }
 
-    private static async Task WriteResults(Options options, IEnvironment environment, ConcurrentBag<long> measurements)
+    private static async Task WriteResults(Options options, IEnvironment environment, ConcurrentBag<long> measurements, double throughput)
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
-        foreach (var line in measurements)
-            streamWriter.WriteLine(line);
+        if (options.Mode.Equals("latency"))
+        {
+            foreach (var line in measurements)
+                streamWriter.WriteLine(line);
+        }
+        streamWriter.WriteLine($"Throughput: {throughput}");
+        streamWriter.WriteLine($"Average latency: {measurements.Sum() / measurements.Count}");
+
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
         await environment.PublishResultsAsync(options.OutputFile, memoryStream);

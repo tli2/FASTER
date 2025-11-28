@@ -38,6 +38,8 @@ spec:
             - "{{ $.Values.workload }}-result-{{ .num }}-{{- if $.Values.speculative }}speculative{{- end }}.txt"
             - "-i"
             - "{{ $.Values.window }}"
+            - "-m"
+            - "{{ $.Values.mode }}"
           workingDir: "/app/TravelReservation/"
           image: tianyuli96/faster:latest
           name: client{{ .num }}
