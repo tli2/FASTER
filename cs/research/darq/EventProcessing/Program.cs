@@ -37,7 +37,7 @@ public class Options
         HelpText = "identifier of the service to launch")]
     public int HostId { get; set; }
     
-    [Option('s', "speculative", Required = false, Default = false,
+    [Option('s', "speculative", Required = false, Default = true,
         HelpText = "whether services proceed speculatively")]
     public bool Speculative { get; set; }
     
@@ -116,9 +116,10 @@ public class Program
         var measurementProcessor = new SearchListLatencyMeasurementProcessor(stopwatch, client);
         _ = Task.Run(async () => await processingClient.StartProcessingAsync(measurementProcessor, false));
         await measurementProcessor.workloadTerminationed.Task;
-        var throughput = numRecords * 1000.0 / stopwatch.ElapsedMilliseconds;
+        var totalTime = stopwatch.ElapsedMilliseconds;
+        var throughput = numRecords * 1000.0 / totalTime;
         await WriteLatencyResults(options, environment, measurementProcessor);
-        await WriteOtherResults(options, environment, throughput, measurementProcessor.totalBytesWritten, measurementProcessor);
+        await WriteOtherResults(options, environment, totalTime, throughput, measurementProcessor.totalBytesWritten, measurementProcessor);
     }
 
     private static async Task WriteLatencyResults(Options options, IEnvironment environment, SearchListLatencyMeasurementProcessor processor)
@@ -151,7 +152,7 @@ public class Program
         return lower + fractionalPart * (upper - lower);
     }
     
-    private static async Task WriteOtherResults(Options options, IEnvironment environment, double throughput, long bytesWritten, SearchListLatencyMeasurementProcessor processor)
+    private static async Task WriteOtherResults(Options options, IEnvironment environment, double totalTime, double throughput, long bytesWritten, SearchListLatencyMeasurementProcessor processor)
     {
         var latencies = processor.results.Select(line => line.Value.Item2 - line.Value.Item1).ToList();
         var p50 = ComputePercentile(latencies, 0.5);
@@ -159,6 +160,7 @@ public class Program
 
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
+        streamWriter.WriteLine($"Total Time: {totalTime}");
         streamWriter.WriteLine($"Throughput: {throughput}");
         streamWriter.WriteLine($"P50 Latency: {p50}");
         streamWriter.WriteLine($"P95 Latency: {p95}");
