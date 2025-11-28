@@ -104,8 +104,11 @@ public class Program
             Task.Run(async () =>
             {
                 var finder = new GrpcDprFinder(environment.GetDprFinderConnString());
-                await Task.Delay(15000);
-                finder.ForceRollback();
+                for (var i = 0; i < 4; i++)
+                {
+                    await Task.Delay(25000);
+                    finder.ForceRollback();
+                }
             });
         }
         _ = Task.Run(loader.Run);
