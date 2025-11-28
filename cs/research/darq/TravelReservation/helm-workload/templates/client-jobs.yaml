@@ -35,7 +35,7 @@ spec:
             - "-n"
             - "{{ .num }}"
             - "-o"
-            - "{{ $.Values.workload }}-result-{{ .num }}-{{- if $.Values.speculative }}speculative{{- end }}.txt"
+            - "{{ $.Values.workload }}-result-{{ $.Values.window }}-{{- if $.Values.speculative }}speculative{{- end }}.txt"
             - "-i"
             - "{{ $.Values.window }}"
             - "-m"
