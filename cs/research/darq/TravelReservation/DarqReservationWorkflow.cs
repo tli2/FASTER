@@ -190,7 +190,7 @@ public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace);
             }
         });
     }
@@ -237,7 +237,7 @@ public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace);
             }
         });
     }
