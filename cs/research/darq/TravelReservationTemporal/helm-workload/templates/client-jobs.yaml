@@ -34,7 +34,7 @@ spec:
             - "-n"
             - "{{ .Values.num_services }}"
             - "-o"
-            - "{{ $.Values.output_filename }}-result.txt"
+            - "{{ $.Values.output_filename }}-result-{{ $.Values.window }}-.txt"
             - "-i"
             - "{{ $.Values.window }}"
           workingDir: "/app/TravelReservationTemporal/"

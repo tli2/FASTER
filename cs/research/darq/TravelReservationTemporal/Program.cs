@@ -33,6 +33,10 @@ public class Options
     [Option('i', "issue-window", Required = false, Default = 128,
         HelpText = "how many requests can be concurrently in-flight")]
     public int IssueWindow { get; set; }
+    
+    [Option('m', "mode", Required = false, Default = "throughput",
+        HelpText = "Mode of benchmark (latency or throughput)")]
+    public string Mode { get; set; }
 }
 
 public class Program
@@ -114,12 +118,19 @@ public class Program
         }
     }
 
-    private static async Task WriteResults(Options options, ConcurrentBag<long> measurements)
+    private static async Task WriteResults(Options options, ConcurrentBag<long> measurements, double throughput)
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
-        foreach (var line in measurements)
+        if (options.Mode.Equals("latency"))
+        {
+            foreach (var line in measurements)
             streamWriter.WriteLine(line);
+        }
+        streamWriter.WriteLine($"Throughput: {throughput}");
+        var avg = measurements.Average();
+        streamWriter.WriteLine($"Average latency: {avg}");
+        streamWriter.WriteLine($"Latency std: {Math.Sqrt(measurements.Sum(x => (x - avg) * (x - avg)) / (measurements.Count - 1))}");
         await streamWriter.FlushAsync();
         memoryStream.Position = 0;
         var connString = Environment.GetEnvironmentVariable("AZURE_RESULTS_CONN_STRING");
@@ -195,6 +206,7 @@ public class Program
     {
         Console.WriteLine("Parsing workload file...");
         var timedRequests = new List<(long Timestamp, string WorkflowId, string Input)>();
+        var latencyMode = options.Mode.Equals("latency");
 
         foreach (var line in File.ReadLines($"{options.WorkloadTrace}-client-0.csv"))
         {
@@ -221,8 +233,11 @@ public class Program
         {
             var request = timedRequests[i];
 
-            while (stopwatch.ElapsedMilliseconds <= request.Timestamp)
-                await Task.Yield();
+            if (latencyMode)
+            {
+                while (stopwatch.ElapsedMilliseconds <= request.Timestamp)
+                    await Task.Yield();
+            }
 
             await rateLimiter.WaitAsync();
 
@@ -230,6 +245,8 @@ public class Program
             {
                 try
                 {
+                    var startTime = stopwatch.ElapsedMilliseconds;
+
                     var wfOptions = new WorkflowOptions(id: $"${runGuid}:{request.WorkflowId}",
                         taskQueue: $"travel-task-queue{runGuid}");
 
@@ -240,7 +257,7 @@ public class Program
                     await handle.GetResultAsync();
 
                     var endTime = stopwatch.ElapsedMilliseconds;
-                    var latency = endTime - request.Timestamp; // End Time - Scheduled Start Time
+                    var latency = latencyMode ? endTime - request.Timestamp : endTime - startTime;
                     measurements.Add(latency);
                 }
                 catch (Exception ex)
@@ -258,12 +275,13 @@ public class Program
         while (measurements.Count != timedRequests.Count)
         {
             Console.WriteLine($"Waiting for {timedRequests.Count - measurements.Count} more results...");
-            await Task.Delay(100);
+            await Task.Delay(10);
         }
 
         Console.WriteLine("Benchmark finished, cleaning up database...");
-
-        await WriteResults(options, measurements);
+        
+        var throughput = measurements.Count * 1000.0 / stopwatch.ElapsedMilliseconds;
+        await WriteResults(options, measurements, throughput);
         await CleanupDatabaseAsync();
     }
 
