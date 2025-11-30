@@ -122,11 +122,8 @@ public class Program
     {
         using var memoryStream = new MemoryStream();
         await using var streamWriter = new StreamWriter(memoryStream);
-        if (options.Mode.Equals("latency"))
-        {
-            foreach (var line in measurements)
+        foreach (var line in measurements)
             streamWriter.WriteLine(line);
-        }
         streamWriter.WriteLine($"Throughput: {throughput}");
         var avg = measurements.Average();
         streamWriter.WriteLine($"Average latency: {avg}");
