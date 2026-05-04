@@ -1,0 +1,67 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "cassandraClusters_dsebench_cassandra_name": {
+            "defaultValue": "dsebench-cassandra",
+            "type": "String"
+        },
+        "virtualNetworks_aks_vnet_externalid": {
+            "type": "String",
+            "metadata": {
+                "description": "Resource ID of the AKS-managed VNet. Retrieve with: az network vnet list --resource-group MC_<RG>_<CLUSTER>_<LOC> --query '[0].id' -o tsv"
+            }
+        },
+        "initialCassandraAdminPassword": {
+            "type": "SecureString",
+            "metadata": {
+                "description": "Superuser password for Cassandra authentication. Paste into every 'password:' field in AE/temporal-values.yaml."
+            }
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.DocumentDB/cassandraClusters",
+            "apiVersion": "2025-11-01-preview",
+            "name": "[parameters('cassandraClusters_dsebench_cassandra_name')]",
+            "location": "[resourceGroup().location]",
+            "identity": {
+                "type": "None"
+            },
+            "properties": {
+                "authenticationMethod": "Cassandra",
+                "initialCassandraAdminPassword": "[parameters('initialCassandraAdminPassword')]",
+                "azureConnectionMethod": "None",
+                "autoReplicate": "AllKeyspaces",
+                "cassandraVersion": "4.0",
+                "clientCertificates": [],
+                "clusterType": "NonProduction",
+                "delegatedManagementSubnetId": "[concat(parameters('virtualNetworks_aks_vnet_externalid'), '/subnets/aks-subnet')]",
+                "extensions": [],
+                "externalDataCenters": [],
+                "externalGossipCertificates": [],
+                "externalSeedNodes": [],
+                "repairEnabled": true,
+                "cassandraAuditLoggingEnabled": false
+            }
+        },
+        {
+            "type": "Microsoft.DocumentDB/cassandraClusters/dataCenters",
+            "apiVersion": "2025-11-01-preview",
+            "name": "[concat(parameters('cassandraClusters_dsebench_cassandra_name'), '/datacenter-1')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/cassandraClusters', parameters('cassandraClusters_dsebench_cassandra_name'))]"
+            ],
+            "properties": {
+                "dataCenterLocation": "[resourceGroup().location]",
+                "delegatedSubnetId": "[concat(parameters('virtualNetworks_aks_vnet_externalid'), '/subnets/aks-subnet')]",
+                "nodeCount": 3,
+                "availabilityZone": false,
+                "sku": "Standard_E16s_v5",
+                "diskSku": "P30",
+                "diskCapacity": 4
+            }
+        }
+    ]
+}

@@ -48,14 +48,14 @@ public class LocalDebugEnvironment : IEnvironment
     {
         var result = new FileBasedCheckpointManager(
             new LocalStorageNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"D:\\darq{topicId}"), removeOutdated: false);
+            new DefaultCheckpointNamingScheme($"./darq{topicId}"), removeOutdated: false);
         result.PurgeAll();
         return result;
     }
 
     public IDevice GetDarqDevice(int topicId)
     {
-        return new NativeStorageDevice($"D:\\darq{topicId}.log", deleteOnClose: true);
+        return new NativeStorageDevice($"./darq{topicId}.log", deleteOnClose: true);
     }
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";

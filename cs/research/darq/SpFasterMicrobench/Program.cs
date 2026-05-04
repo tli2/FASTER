@@ -247,7 +247,7 @@ public class Program
 
         var checkpointManager = new DeviceLogCommitCheckpointManager(
             new NullNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"D:\\service"), removeOutdated: false);
+            new DefaultCheckpointNamingScheme($"./service"), removeOutdated: false);
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
             IndexSize = 1 << 25,
@@ -308,7 +308,7 @@ public class Program
 
         var checkpointManager = new DeviceLogCommitCheckpointManager(
             new NullNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"D:\\service"), removeOutdated: false);
+            new DefaultCheckpointNamingScheme($"./service"), removeOutdated: false);
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
             IndexSize = 1 << 25,
@@ -365,7 +365,7 @@ public class Program
 
         var checkpointManager = new DeviceLogCommitCheckpointManager(
             new NullNamedDeviceFactory(),
-            new DefaultCheckpointNamingScheme($"D:\\service"), removeOutdated: false);
+            new DefaultCheckpointNamingScheme($"./service"), removeOutdated: false);
         builder.Services.AddSingleton(new FasterKVSettings<Key, Value>
         {
             IndexSize = 1 << 25,

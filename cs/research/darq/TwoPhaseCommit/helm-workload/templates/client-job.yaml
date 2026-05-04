@@ -8,7 +8,7 @@ spec:
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-all
-          image: bitnami/kubectl
+          image: {{ .Values.kubectl_image }}
           command: [ "sh", "-c" ]
           args:
             - >
@@ -36,7 +36,7 @@ spec:
             - "{{ $.Values.window }}"
             - "-o"
             - "2pc-results-{{.Values.tag}}.txt"
-          image: tianyuli96/faster:latest
+          image: {{ .Values.image }}
           name: client
           ports:
             - containerPort: 15721

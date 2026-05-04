@@ -1,3 +1,5 @@
+image: ""
+kubectl_image: bitnami/kubectl
 conn_string: foo
 results_conn_string: foo
 experiment: EventProcessing-latency
@@ -16,3 +18,4 @@ processors:
     
 pubsub_speculative: false
 processor_speculative: false
+simulated_recovery: false

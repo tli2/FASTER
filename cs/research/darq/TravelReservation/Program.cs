@@ -93,7 +93,7 @@ public class Program
                     .SetNumWorkflowsPerSecond(1)
                     .SetNumSeconds(1000000)
                     .SetNumOfferings(1000000)
-                    .SetBaseFileName("C:\\Users\\tianyu\\Desktop\\workloads\\micro")
+                    .SetBaseFileName(string.IsNullOrEmpty(options.OutputFile) ? "micro" : options.OutputFile)
                     .GenerateWorkloadTrace(new Random());
                 break;
             default:

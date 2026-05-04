@@ -21,7 +21,7 @@ spec:
           args: 
             - "-t"
             - "dprfinder"
-          image: tianyuli96/faster:latest
+          image: {{ .Values.image }}
           workingDir: "/app/TravelReservation/"
           name: dprfinder
           ports:

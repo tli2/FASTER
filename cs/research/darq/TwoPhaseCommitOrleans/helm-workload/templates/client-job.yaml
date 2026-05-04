@@ -9,7 +9,7 @@ spec:
       serviceAccountName: dse-runner
       initContainers:
         - name: wait-all
-          image: bitnami/kubectl
+          image: {{ .Values.kubectl_image }}
           command: [ "sh", "-c" ]
           args:
             - >
@@ -26,7 +26,7 @@ spec:
               done;
       containers:
         - name: client
-          image: tianyuli96/faster:latest
+          image: {{ .Values.image }}
           # ADDED: workingDir so the command finds the file
           workingDir: "/app/TwoPhaseCommitOrleans"
           command:

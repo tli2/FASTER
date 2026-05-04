@@ -21,7 +21,10 @@ spec:
           args:
             - "-t"
             - "dprfinder"
-          image: tianyuli96/faster:latest
+            {{- if $.Values.simulated_recovery }}
+            - "-r"
+            {{- end }}
+          image: {{ .Values.image }}
           workingDir: "/app/EventProcessing/"
           name: dprfinder
           ports:

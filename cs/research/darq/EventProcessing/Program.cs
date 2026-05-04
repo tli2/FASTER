@@ -48,6 +48,10 @@ public class Options
     [Option('f', "fail", Required = false, Default = true,
         HelpText = "Whether to force a rollback halfway through the workload")]
     public bool Fail { get; set; }
+
+    [Option('r', "simulated-recovery", Required = false, Default = false,
+        HelpText = "Use simulated-recovery environment")]
+    public bool SimulatedRecovery { get; set; }
 }
 
 public class Program
@@ -59,8 +63,9 @@ public class Program
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
         // IEnvironment environment = new LocalDebugEnvironment();
-        var environment = new KubernetesLocalStorageEnvironment(true);
-        // var environment = new KubernetesLocalStorageEnvironmentForRecovery();
+        IEnvironment environment = options.SimulatedRecovery
+            ? new KubernetesLocalStorageEnvironmentForRecovery()
+            : new KubernetesLocalStorageEnvironment(true);
         
         switch (options.Type.Trim())
         {
@@ -79,7 +84,7 @@ public class Program
                 await LaunchDprFinder(options, environment);
                 break;
             case "generate":
-                new SearchListDataGenerator().SetOutputFile("C:\\Users\\tianyu\\Desktop\\workloads\\EventProcessing-latency\\workloads\\events-100k.txt")
+                new SearchListDataGenerator().SetOutputFile(string.IsNullOrEmpty(options.OutputName) ? "events-100k.txt" : options.OutputName)
                     .SetSearchTermRelevantProb(0.2)
                     .SetTrendParameters(0.1, 10000, 5000)
                     .SetSearchTermLength(80)

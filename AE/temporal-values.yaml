@@ -1,0 +1,104 @@
+cassandra:
+  enabled: false # Keep this false
+  hosts: ""  # TODO comma-separated Cassandra IPs (provision your own cluster)
+  port: 9042
+  user: "cassandra"
+  password: ""  # TODO Cassandra password
+  tls:
+    enabled: true
+    enableHostVerification: false
+
+visibility:
+  store: "cassandra" # Tell the server to use cassandra for visibility
+  cassandra:
+    hosts: ""  # TODO comma-separated Cassandra IPs (provision your own cluster)
+    port: 9042
+    user: "cassandra"
+    password: ""  # TODO Cassandra password
+    tls:
+      enabled: true
+      enableHostVerification: false
+
+elasticsearch:
+  enabled: true 
+prometheus:
+  enabled: false
+grafana:
+  enabled: false
+
+schema:
+  setup:
+    enabled: true 
+  update:
+    enabled: true 
+  createDatabase:
+    enabled: false
+  store: "cassandra"
+
+server:
+  resources:
+    requests:
+      cpu: 1
+      memory: 2Gi
+  persistence:
+    defaultStore: "default"
+    visibilityStore: "visibility"
+
+  frontend:
+    replicaCount: 4
+  history:
+    replicaCount: 6 # History does the heavy lifting, give it more replicas
+    resources:
+      requests:
+        cpu: 4    
+        memory: 4Gi
+  matching:
+    replicaCount: 4
+
+  dynamicConfig:
+    history.persistenceMaxQPS:
+      - value: 100000
+    frontend.rps:
+      - value: 100000
+    matching.numTaskqueueReadPartitions:
+      - value: 32
+    matching.numTaskqueueWritePartitions:
+      - value: 32
+    # 1. Total RPS allowed for the "default" namespace across the whole cluster
+    frontend.globalNamespaceRPS:
+      - value: 100000
+    # 2. Max RPS one frontend host will accept for the namespace
+    frontend.namespaceRPS:
+      - value: 100000
+    # 3. Allow bursts (spikes) to pass through
+    frontend.namespaceBurst:
+      - value: 100000
+
+  config:
+    numHistoryShards: 1024
+
+    persistence:
+      default:
+        cassandra:
+          hosts: ""  # TODO comma-separated Cassandra IPs (provision your own cluster)
+          port: 9042
+          user: "cassandra"
+          password: ""  # TODO Cassandra password
+          tls:
+            enabled: true
+            enableHostVerification: false
+      visibility:
+        cassandra:
+          hosts: ""  # TODO comma-separated Cassandra IPs (provision your own cluster)
+          port: 9042
+          user: "cassandra"
+          password: ""  # TODO Cassandra password
+          tls:
+            enabled: true
+            enableHostVerification: false
+
+  namespaces:
+    create: true
+    namespace:
+      - name: default
+        retention: "30d"

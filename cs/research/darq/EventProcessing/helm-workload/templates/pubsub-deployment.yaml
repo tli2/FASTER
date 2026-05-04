@@ -21,7 +21,7 @@ spec:
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-for-dprfinder{{ .num }}
-          image: bitnami/kubectl
+          image: {{ $.Values.kubectl_image }}
           imagePullPolicy: IfNotPresent
           command: [ 'sh', '-c', 'until kubectl get deployment -l service=dprfinder -n dse | grep -q "1/1"; do echo waiting for deployment-b; sleep 1; done;' ]
       containers:
@@ -37,7 +37,10 @@ spec:
             {{- if $.Values.pubsub_speculative }}
             - "-s"
             {{- end }}
-          image: tianyuli96/faster:latest
+            {{- if $.Values.simulated_recovery }}
+            - "-r"
+            {{- end }}
+          image: {{ $.Values.image }}
           workingDir: "/app/EventProcessing/"
           name: pubsub{{ .num }}
           ports:

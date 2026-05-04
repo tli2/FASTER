@@ -23,7 +23,7 @@ spec:
           args: 
             - "-t"
             - "worker"
-          image: tianyuli96/faster:latest
+          image: {{ .Values.image }}
           workingDir: "/app/TravelReservationTemporal/"
           name: "worker{{ . }}"
           envFrom:

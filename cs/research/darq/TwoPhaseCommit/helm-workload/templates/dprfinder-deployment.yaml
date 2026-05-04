@@ -22,7 +22,7 @@ spec:
             - "-t"
             - "dprfinder"
           workingDir: "/app/TwoPhaseCommit"
-          image: tianyuli96/faster:latest
+          image: {{ .Values.image }}
           name: dprfinder
           ports:
             - containerPort: 15721

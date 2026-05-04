@@ -21,7 +21,7 @@ spec:
       serviceAccountName: dse-runner
       containers:
         - name: silo{{ . }}
-          image: tianyuli96/faster:latest
+          image: {{ $.Values.image }}
           # ADDED: workingDir so the command finds the file
           workingDir: "/app/TwoPhaseCommitOrleans"
           command:

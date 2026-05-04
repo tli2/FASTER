@@ -203,3 +203,9 @@ cs/libdpr/.idea/
 cs/research/darq/.idea/
 
 cs/**/BenchmarkDotNet.Artifacts/
+
+# AE — local credentials for experiment scripts
+AE/scripts/env.sh
+
+# macOS metadata
+**/.DS_Store

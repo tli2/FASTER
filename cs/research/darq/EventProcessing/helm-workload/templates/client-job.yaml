@@ -8,7 +8,7 @@ spec:
       serviceAccountName: deployment-watcher
       initContainers:
         - name: wait-all
-          image: bitnami/kubectl
+          image: {{ .Values.kubectl_image }}
           imagePullPolicy: IfNotPresent
           command: [ "sh", "-c" ]
           args:
@@ -34,7 +34,10 @@ spec:
             - "/app/{{.Values.experiment}}/workloads/{{.Values.workload}}.txt"
             - "-o"
             - "{{.Values.experiment}}-{{.Values.workload}}-results-c{{.Values.checkpoint_interval}}{{.Values.tag}}"
-          image: tianyuli96/faster:latest
+            {{- if $.Values.simulated_recovery }}
+            - "-r"
+            {{- end }}
+          image: {{ .Values.image }}
           workingDir: "/app/EventProcessing/"
           name: client
           ports:
