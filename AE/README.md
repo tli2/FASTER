@@ -209,9 +209,11 @@ az aks get-credentials --resource-group "$RG" --name "$CLUSTER"
 
 ### 3.2 PersistentVolumeClaims
 
-Each experiment ships a separate `helm-storage` chart that creates its PVCs.
-Storage is intentionally one-time and persists across runs (recovery
-experiments depend on it). Install once per experiment that needs persistence:
+Each experiment uses a `helm-storage` chart to create its PersistentVolumeClaims
+(premium LRS SSDs) under `/mnt/plrs` inside each pod. **The experiment scripts
+do not manage PVC lifecycle** — they only install and uninstall the workload
+pods. Install the storage charts once before running any experiments, and leave
+them up for the duration of all runs:
 
 ```sh
 helm install pvc-tr  cs/research/darq/TravelReservation/helm-storage  -n dse
@@ -219,14 +221,31 @@ helm install pvc-ep  cs/research/darq/EventProcessing/helm-storage    -n dse
 helm install pvc-tpc cs/research/darq/TwoPhaseCommit/helm-storage     -n dse
 ```
 
-For exp 5 sub-figure (c) (`speculative-simulated`), provision 4 EventProcessing
-worker PVCs instead of the default 2:
+The default `values.yaml` in each storage chart already provisions PVCs for
+the full experiment sweep:
+- **TravelReservation**: `service{0..9}-pvc`, `orchestrator{10,11}-pvc`, `dprfinder-pvc` — covers all `--n-services 1..10` runs
+- **EventProcessing**: `pubsub{0..3}-pvc`, `dprfinder-pvc` — covers both exp 4 (2 workers) and exp 5 (4 workers)
+- **TwoPhaseCommit**: `participant{0..3}-pvc`, `dprfinder-pvc` — covers exp 6 and 8
+
+**Between normal runs, no manual PVC management is needed.** Experiments 1, 2,
+4, 6, and 8 always wipe disk state at startup (`PurgeAll` / `RemoveIfPresent`),
+so stale data from a prior run is never an issue.
+
+**Exp 5 `--simulated-recovery` requires prior state on disk.** The simulated
+recovery sub-figure must be preceded by a normal (non-`--simulated-recovery`)
+exp 5 run on the same PVCs, which writes the DARQ log data that the recovery
+run then replays. If you need to repeat the whole scenario from scratch, reset
+the EventProcessing PVCs first:
 
 ```sh
-helm upgrade pvc-ep cs/research/darq/EventProcessing/helm-storage -n dse \
-  --set 'workers[0].num=0' --set 'workers[1].num=1' \
-  --set 'workers[2].num=2' --set 'workers[3].num=3'
+helm uninstall pvc-ep -n dse
+helm install   pvc-ep cs/research/darq/EventProcessing/helm-storage -n dse
 ```
+
+Then re-run a normal exp 5 run before re-running the `--simulated-recovery` variant.
+
+**Final teardown** — PVCs do not need to be uninstalled manually; `az group
+delete` (§3.7) removes them along with the entire cluster.
 
 ### 3.3 Backing services
 

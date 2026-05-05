@@ -1,0 +1,8 @@
+results_conn_string: ""  # TODO set Azure Storage connection string for results upload
+cosmos_conn_string: ""  # TODO set Cosmos DB connection string
+experiment: TravelReservation-latency
+output_filename: TravelReservation-latency-3-temporal
+workload: workload-3service
+window: 32
+num_workers: 3
+num_services: 3

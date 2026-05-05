@@ -1,5 +1,8 @@
+conn_string: foo
+results_conn_string: foo
 experiment: TravelReservation-latency
-workload: workload-tiny
+workload: workload-9service
+window: 32
 
 services:
   - num: 0
@@ -19,8 +22,6 @@ services:
   - num: 7
     port: 15721
   - num: 8
-    port: 15721
-  - num: 9
     port: 15721
 
 orchestrator_port: 15721

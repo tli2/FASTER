@@ -1,5 +1,8 @@
+conn_string: foo
+results_conn_string: foo
 experiment: TravelReservation-latency
-workload: workload-tiny
+workload: workload-10service
+window: 32
 
 services:
   - num: 0

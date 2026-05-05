@@ -109,8 +109,7 @@ public class OrchestratorBackgroundProcessingService : BackgroundService, IDarqP
         }
         catch (Exception e)
         {
-            Console.WriteLine(e.Message);
-            Console.WriteLine(e.StackTrace);
+            Console.WriteLine(e);
             throw;
         }
     }

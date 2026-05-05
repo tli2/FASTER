@@ -193,9 +193,7 @@ namespace FASTER.darq
             }
             catch (Exception e)
             {
-                Console.WriteLine("C# why you eat exceptions");
-                Console.WriteLine(e.Message);
-                Console.WriteLine(e.StackTrace);
+                Console.WriteLine(e);
             }
         }
     }

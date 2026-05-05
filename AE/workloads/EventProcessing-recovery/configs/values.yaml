@@ -1,0 +1,20 @@
+# Connection-string fields are placeholders; exp05 always overrides them via --set at deploy time.
+conn_string: ""
+results_conn_string: ""
+experiment: EventProcessing-recovery
+workload: events-10k-long
+checkpoint_interval: 10
+
+workers:
+  - num: 0
+  - num: 1
+  - num: 2
+  - num: 3
+
+processors:
+  - name: aggregate
+  - name: detection
+  - name: filter
+    
+processor_speculative: false
+pubsub_speculative: false

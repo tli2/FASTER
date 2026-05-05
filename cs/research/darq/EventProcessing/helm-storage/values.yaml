@@ -1,10 +1,10 @@
-conn_string: foo
-results_conn_string: foo
 workload: workload-small
 
 workers:
   - num: 0
   - num: 1
+  - num: 2
+  - num: 3
 
 processors:
   - name: aggregate
