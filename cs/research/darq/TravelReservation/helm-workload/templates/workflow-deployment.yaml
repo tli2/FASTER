@@ -32,7 +32,7 @@ spec:
             {{- if $.Values.speculative }}
             - "-s"
             {{- end }}
-          image: {{ .Values.image }}
+          image: {{ $.Values.image }}
           name: "orchestrator{{ .num }}"
           workingDir: "/app/TravelReservation/"
           ports:

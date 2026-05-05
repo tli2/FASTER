@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
-require_env AE_CONN_STRING AE_RESULTS_CONN_STRING
+require_env AE_RESULTS_CONN_STRING
 
 SPECULATIVE=""
 WINDOW=""
@@ -34,7 +34,6 @@ run_release "tpc-${TAG_SUFFIX}-${WINDOW}" "$CHART" \
     --set "speculative=$SPECULATIVE" \
     --set "window=$WINDOW" \
     --set "tag=2pc-results-${TAG_SUFFIX}-small" \
-    --set "conn_string=$AE_CONN_STRING" \
     --set "results_conn_string=$AE_RESULTS_CONN_STRING"
 
 log_step "exp06: complete"

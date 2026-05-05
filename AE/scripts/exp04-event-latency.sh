@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
-require_env AE_CONN_STRING AE_RESULTS_CONN_STRING
+require_env AE_RESULTS_CONN_STRING
 
 SPECULATIVE=""
 CHK=""
@@ -38,7 +38,6 @@ run_release "ep-c${CHK}-${SPECULATIVE}" "$CHART" \
     --set "tag=c${CHK}$([ "$SPECULATIVE" = true ] && echo spec || echo nospec)" \
     --set "processor_speculative=$SPECULATIVE" \
     --set "pubsub_speculative=$SPECULATIVE" \
-    --set "conn_string=$AE_CONN_STRING" \
     --set "results_conn_string=$AE_RESULTS_CONN_STRING"
 
 log_step "exp04: complete"

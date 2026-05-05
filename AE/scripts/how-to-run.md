@@ -11,7 +11,6 @@ Required variables per experiment group:
 | Variable | Required by |
 |---|---|
 | `AE_RESULTS_CONN_STRING` | all cluster experiments (1–8) |
-| `AE_CONN_STRING` | exps 1, 2, 4, 5, 6, 8 |
 | `AE_COSMOS_CONN_STRING` | exp 3 only |
 | `AE_AZURE_TABLE_CONN_STRING` | exp 7 only |
 

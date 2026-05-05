@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
-require_env AE_CONN_STRING AE_RESULTS_CONN_STRING
+require_env AE_RESULTS_CONN_STRING
 
 SPECULATIVE=""
 N_SERVICES=""
@@ -31,7 +31,6 @@ log_step "exp01: n-services=$N_SERVICES speculative=$SPECULATIVE"
 run_release "tr-lat-${SPECULATIVE}-${N_SERVICES}" "$CHART" \
     -f "$OVERLAY" \
     --set "speculative=${SPECULATIVE}" \
-    --set "conn_string=$AE_CONN_STRING" \
     --set "results_conn_string=$AE_RESULTS_CONN_STRING"
 
 log_step "exp01: complete"

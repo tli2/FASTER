@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
-require_env AE_CONN_STRING AE_RESULTS_CONN_STRING
+require_env AE_RESULTS_CONN_STRING
 
 CHART="$(chart_dir TwoPhaseCommit)"
 
@@ -20,7 +20,6 @@ run_release "tpc-fail" "$CHART" \
     --set "failover=true" \
     --set "window=128" \
     --set "tag=2pc-recovery" \
-    --set "conn_string=$AE_CONN_STRING" \
     --set "results_conn_string=$AE_RESULTS_CONN_STRING"
 
 log_step "exp08: complete"

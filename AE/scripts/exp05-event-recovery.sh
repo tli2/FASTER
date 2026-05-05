@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/common.sh"
 
-require_env AE_CONN_STRING AE_RESULTS_CONN_STRING
+require_env AE_RESULTS_CONN_STRING
 
 SPECULATIVE=""
 SIM_RECOVERY=false
@@ -46,7 +46,6 @@ helm_install_release "ep-rec-${LABEL}" "$CHART" \
     --set "pubsub_speculative=$SPECULATIVE" \
     --set "simulated_recovery=$SIM_RECOVERY" \
     --set "tag=recovery-${LABEL}" \
-    --set "conn_string=$AE_CONN_STRING" \
     --set "results_conn_string=$AE_RESULTS_CONN_STRING"
 
 KILL_PID=""

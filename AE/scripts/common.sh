@@ -24,10 +24,6 @@ export AE_IMAGE=""
 # Azure Storage account used for result uploads.
 export AE_RESULTS_CONN_STRING=""
 
-# ── Required by experiments 1, 2, 4, 5, 6, 8 ────────────────────────────────
-# Azure Storage account used for working data (workload uploads, caches).
-export AE_CONN_STRING=""
-
 # ── Required by experiment 3 only (Temporal baseline) ───────────────────────
 # Cosmos DB connection string for Temporal application state.
 export AE_COSMOS_CONN_STRING=""
@@ -180,7 +176,6 @@ run_release() {
 # Echoes args; caller embeds in helm_install_release call.
 common_helm_sets() {
     local sets=()
-    [ -n "${AE_CONN_STRING:-}" ]         && sets+=( --set "conn_string=$AE_CONN_STRING" )
     [ -n "${AE_RESULTS_CONN_STRING:-}" ] && sets+=( --set "results_conn_string=$AE_RESULTS_CONN_STRING" )
     [ -n "${AE_IMAGE:-}" ]               && sets+=( --set "image=$AE_IMAGE" )
     printf '%s\n' "${sets[@]}"

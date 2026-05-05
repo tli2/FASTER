@@ -130,15 +130,15 @@ python3 -c "import matplotlib, numpy, seaborn; print('ok')"
 Verify the artifact builds and runs without any cloud infrastructure using the
 StateObjectMicrobench (exp 10), which runs entirely on a single local machine.
 
-**Prerequisite:** `dotnet` 9.0 SDK — see the table in §3.1 for install links.
+**Prerequisite:** `dotnet` 9.0 SDK — see the Prerequisites section above for install instructions.
 
 ```sh
 dotnet build cs/research/darq/darq.sln -c Release
 bash AE/scripts/exp10-stateobject-microbench.sh -t 0 -n 4 -o 100000
 ```
 
-Expected output: per-thread operation counts and latency statistics
-(median, p95) printed to stdout. Non-zero throughput values confirm the binary is working.
+Expected output: a single floating-point number — the aggregate throughput in ops/s
+(e.g. `3539823.0`). A non-zero value confirms the binary is working.
 
 **Step 2 — Local TravelReservation end-to-end smoke test**:
 
@@ -160,17 +160,7 @@ The remaining sections cover full AKS cluster setup and end-to-end experiment ex
 
 ## 3. Setup
 
-### 3.1 Prerequisites
-
-| Tool | Version | Notes |
-|---|---|---|
-| `az` (Azure CLI) | ≥ 2.50 | for `az login` |
-| `kubectl` | ≥ 1.27 | matches AKS API |
-| `helm` | v3.x | for chart deploys |
-| `docker` | any recent | for image build |
-| `dotnet` | 9.0 SDK | local builds + microbenchmarks |
-
-### 3.2 AKS cluster
+### 3.1 AKS cluster
 
 The paper's cluster: 10× `Standard_D8s_v3` (8 vCPU, 32 GB) labeled
 `nodepool=dsebench` with premium LRS SSDs, plus a single-node system pool.
@@ -178,7 +168,7 @@ Adjust resource group / cluster name as needed:
 
 ```sh
 RG=DSE
-LOC=westus3
+LOC=eastus
 CLUSTER=dse-ae
 
 az group create -n "$RG" -l "$LOC"
@@ -217,7 +207,7 @@ az login
 az aks get-credentials --resource-group "$RG" --name "$CLUSTER"
 ```
 
-### 3.3 PersistentVolumeClaims
+### 3.2 PersistentVolumeClaims
 
 Each experiment ships a separate `helm-storage` chart that creates its PVCs.
 Storage is intentionally one-time and persists across runs (recovery
@@ -238,22 +228,20 @@ helm upgrade pvc-ep cs/research/darq/EventProcessing/helm-storage -n dse \
   --set 'workers[2].num=2' --set 'workers[3].num=3'
 ```
 
-### 3.4 Backing services
+### 3.3 Backing services
 
-#### Azure Storage — working data + results
+#### Azure Storage — results
 
 ```sh
-az storage account create -n dseworkdata -g "$RG" --sku Standard_LRS
 az storage account create -n dseresults  -g "$RG" --sku Standard_LRS
 
-AE_CONN_STRING=$(az storage account show-connection-string \
-                   -n dseworkdata -g "$RG" -o tsv)
 AE_RESULTS_CONN_STRING=$(az storage account show-connection-string \
                    -n dseresults  -g "$RG" -o tsv)
 ```
 
-`AE_CONN_STRING` is used by exp 1, 2, 4, 5, 6, 8. `AE_RESULTS_CONN_STRING` is
-used by all cluster experiments.
+`AE_RESULTS_CONN_STRING` is used by all cluster experiments. Experiment state
+(FasterKV/FasterLog logs and checkpoints) is stored on the premium LRS PVCs
+provisioned in §3.2, not in Azure Blob Storage.
 
 #### Cosmos DB — Temporal application state (exp 3 only)
 
@@ -271,7 +259,7 @@ AE_COSMOS_CONN_STRING=$(az cosmosdb keys list \
 
 An ARM template for the paper's 3-node Cassandra cluster is at `AE/cassandra-arm.json`.
 Deploy it into the same resource group as your AKS cluster so Cassandra and AKS share a VNet.
-The AKS cluster (§3.2) must exist first.
+The AKS cluster (§3.1) must exist first.
 
 ```sh
 # Get the AKS-managed VNet ID
@@ -340,15 +328,15 @@ AE_AZURE_TABLE_CONN_STRING=$(az storage account show-connection-string \
                    -n dseorleansmember -g "$RG" -o tsv)
 ```
 
-### 3.5 env.sh
+### 3.4 env.sh
 
 On first run, any experiment script auto-creates `AE/scripts/env.sh`
 (gitignored) with labeled placeholders, then exits. Run any expNN script
-once, paste the connection strings captured in §3.4 plus `AE_TRACES_URL`
-(see §3.6), then re-run. Each runner reads only the variables it actually
+once, paste the connection strings captured in §3.3 plus `AE_TRACES_URL`
+(see §3.5), then re-run. Each runner reads only the variables it actually
 uses, so unused fields can be left empty.
 
-### 3.6 Container image
+### 3.5 Container image
 
 The Dockerfile at the repo root builds every experiment binary and bundles
 the workload traces from `AE/workloads/` into the image. Trace files (~1.7 GB)
@@ -381,7 +369,7 @@ dotnet build cs/research/darq/darq.sln    -c Release
 
 Both target .NET 9.0. Unit tests: `dotnet test cs/research/libdpr/test/FASTER.libdpr.test`.
 
-### 3.7 Microbench host (exp 9 and 10)
+### 3.6 Microbench host (exp 9 and 10)
 
 A single 32-vCPU machine with no Kubernetes. The paper used
 `Standard_D32s_v3`. On a fresh Ubuntu 22.04 box:
@@ -398,7 +386,7 @@ dotnet build cs/research/darq/darq.sln -c Release
 Exp 9 needs two boxes (server + client) on the same network; exp 10 is fully
 single-host.
 
-### 3.8 Tear-down
+### 3.7 Tear-down
 
 ```sh
 helm uninstall temporal -n temporal      # if exp 3 was run
@@ -414,24 +402,24 @@ Each script runs **one experimental condition**; invoke once per data point
 and vary flags to sweep. See **[`AE/scripts/how-to-run.md`](scripts/how-to-run.md)**
 for the full flag reference and example sweep loops.
 
-> **Exp 3** requires Temporal — see §3.4 to deploy and tear down.
+> **Exp 3** requires Temporal — see §3.3 to deploy and tear down.
 
 | # | Script | Figure | Key flags | Env vars |
 |---|---|---|---|---|
-| 1 | `exp01-travel-latency.sh`         | Fig 5a | `--speculative`, `--n-services` | `AE_CONN_STRING`, `AE_RESULTS_CONN_STRING` |
-| 2 | `exp02-travel-throughput.sh`      | Fig 5b | `--speculative`, `--wps`, `--window` | `AE_CONN_STRING`, `AE_RESULTS_CONN_STRING` |
+| 1 | `exp01-travel-latency.sh`         | Fig 5a | `--speculative`, `--n-services` | `AE_RESULTS_CONN_STRING` |
+| 2 | `exp02-travel-throughput.sh`      | Fig 5b | `--speculative`, `--wps`, `--window` | `AE_RESULTS_CONN_STRING` |
 | 3 | `exp03-temporal-baseline.sh`      | Fig 5 (both panels) | `--n-services` or `--wps` | `AE_RESULTS_CONN_STRING`, `AE_COSMOS_CONN_STRING` |
-| 4 | `exp04-event-latency.sh`          | Fig 6 | `--speculative`, `--checkpoint-interval` | `AE_CONN_STRING`, `AE_RESULTS_CONN_STRING` |
+| 4 | `exp04-event-latency.sh`          | Fig 6 | `--speculative`, `--checkpoint-interval` | `AE_RESULTS_CONN_STRING` |
 
 > **Fig 5b Temporal series** (`temporal-thr-result-{w}-.txt`): the window-sweep data for
 > the Temporal throughput-latency curve was generated by invoking the
 > `TravelReservationTemporal` Helm chart directly with `output_filename=temporal-thr` and
 > `window` in `[16, 32, 64, 128]`, not via `exp03`. See
 > [`AE/scripts/how-to-run.md`](scripts/how-to-run.md) §Experiment 3 for the exact commands.
-| 5 | `exp05-event-recovery.sh`         | Fig 8 | `--speculative`, `--kill-at`, `--simulated-recovery` | `AE_CONN_STRING`, `AE_RESULTS_CONN_STRING` |
-| 6 | `exp06-tpc-throughput.sh`         | Fig 7 (DSE pair) | `--speculative`, `--window` | `AE_CONN_STRING`, `AE_RESULTS_CONN_STRING` |
+| 5 | `exp05-event-recovery.sh`         | Fig 8 | `--speculative`, `--kill-at`, `--simulated-recovery` | `AE_RESULTS_CONN_STRING` |
+| 6 | `exp06-tpc-throughput.sh`         | Fig 7 (DSE pair) | `--speculative`, `--window` | `AE_RESULTS_CONN_STRING` |
 | 7 | `exp07-tpc-orleans.sh`            | Fig 7 (in-memory) | none | `AE_RESULTS_CONN_STRING`, `AE_AZURE_TABLE_CONN_STRING` |
-| 8 | `exp08-tpc-recovery.sh`           | Fig 9 | none | `AE_CONN_STRING`, `AE_RESULTS_CONN_STRING` |
+| 8 | `exp08-tpc-recovery.sh`           | Fig 9 | none | `AE_RESULTS_CONN_STRING` |
 | 9 | `exp09-spfaster-microbench.sh`    | Fig 10 | `server\|client`, mode `{none,noint,int}` | none (32-vCPU box) |
 | 10 | `exp10-stateobject-microbench.sh` | Fig 11 | passthrough args to binary | none |
 
