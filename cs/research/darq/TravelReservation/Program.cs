@@ -54,6 +54,11 @@ public class Options
     [Option('i', "issue-window", Required = false, Default = 128,
         HelpText = "how many requests can be concurrently in-flight")]
     public int IssueWindow { get; set; }
+
+    [Option('e', "environment", Required = false, Default = "kubernetes",
+        HelpText = "environment to use: local or kubernetes")]
+    public string Environment { get; set; }
+
 }
 
 public class Program
@@ -65,8 +70,9 @@ public class Program
         ParserResult<Options> result = Parser.Default.ParseArguments<Options>(args);
         if (result.Tag == ParserResultType.NotParsed) return;
         var options = result.MapResult(o => o, xs => new Options());
-        // var environment = new LocalDebugEnvironment();
-        var environment = new KubernetesLocalStorageEnvironment(true);
+        IEnvironment environment = options.Environment == "local"
+            ? new LocalDebugEnvironment()
+            : new KubernetesLocalStorageEnvironment(true);
 
         switch (options.Type.Trim())
         {
@@ -91,7 +97,7 @@ public class Program
                     .SetNumClients(1)
                     .SetNumServices(1)
                     .SetNumWorkflowsPerSecond(1)
-                    .SetNumSeconds(1000000)
+                    .SetNumSeconds(120)
                     .SetNumOfferings(1000000)
                     .SetBaseFileName(string.IsNullOrEmpty(options.OutputFile) ? "micro" : options.OutputFile)
                     .GenerateWorkloadTrace(new Random());

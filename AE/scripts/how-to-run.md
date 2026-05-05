@@ -17,7 +17,6 @@ Required variables per experiment group:
 
 Optional:
 - `AE_NAMESPACE` — Kubernetes namespace (default: `dse`)
-- `AE_DRY_RUN=1` — print Helm commands without executing
 
 ---
 

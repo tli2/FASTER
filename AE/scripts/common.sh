@@ -43,7 +43,6 @@ export AE_TRACES_URL=""
 # ── Optional tuning ─────────────────────────────────────────────────────────
 # export AE_NAMESPACE="dse"     # Kubernetes namespace (default: dse)
 # export AE_HELM_TIMEOUT="20m"  # per-release poll timeout (default: 20m)
-# export AE_DRY_RUN="0"         # set to 1 to print helm/kubectl commands without running
 ENVEOF
 }
 
@@ -67,7 +66,6 @@ fi
 # Defaults — env.sh values override these only if env.sh sets them first.
 : "${AE_NAMESPACE:=dse}"
 : "${AE_HELM_TIMEOUT:=20m}"
-: "${AE_DRY_RUN:=0}"
 
 log_step() {
     printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2
@@ -89,7 +87,6 @@ require_env() {
 
 # helm_install_release <release> <chart-dir> [extra args...]
 # Always installs into $AE_NAMESPACE. Caller passes -f overlay and any --set flags.
-# Honors AE_DRY_RUN=1 by echoing the would-be command instead of running it.
 # Automatically injects --set "image=$AE_IMAGE" when AE_IMAGE is set (values.yaml default is empty).
 helm_install_release() {
     local release="$1"
@@ -98,12 +95,6 @@ helm_install_release() {
     local image_set=()
     [ -n "${AE_IMAGE:-}" ] && image_set=( --set "image=$AE_IMAGE" )
     log_step "helm install $release ($chart)"
-    if [ "$AE_DRY_RUN" = "1" ]; then
-        printf '+ helm install %q %q -n %q' "$release" "$chart" "$AE_NAMESPACE" >&2
-        printf ' %q' "${image_set[@]}" "$@" >&2
-        printf '\n' >&2
-        return 0
-    fi
     helm install "$release" "$chart" -n "$AE_NAMESPACE" "${image_set[@]}" "$@"
 }
 
@@ -129,10 +120,6 @@ wait_for_release_complete() {
     local timeout_secs
     timeout_secs="$(_duration_to_seconds "$timeout")"
     log_step "polling $release Jobs until complete (timeout $timeout)"
-    if [ "$AE_DRY_RUN" = "1" ]; then
-        echo "+ [poll] kubectl get jobs -n $AE_NAMESPACE" >&2
-        return 0
-    fi
     # Give Kubernetes a moment to register Jobs before the first poll.
     sleep 2
     local deadline=$(( $(date +%s) + timeout_secs ))
@@ -161,10 +148,6 @@ wait_for_release_complete() {
 clean_release() {
     local release="$1"
     log_step "tearing down $release"
-    if [ "$AE_DRY_RUN" = "1" ]; then
-        echo "+ helm uninstall $release -n $AE_NAMESPACE" >&2
-        return 0
-    fi
     helm uninstall "$release" -n "$AE_NAMESPACE" --wait || true
     # Pod templates don't carry app.kubernetes.io/instance, so poll namespace-wide.
     # Experiments run sequentially; the namespace should be empty between runs.

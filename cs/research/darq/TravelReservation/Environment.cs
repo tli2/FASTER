@@ -34,18 +34,12 @@ public interface IEnvironment
 
 public class LocalDebugEnvironment : IEnvironment
 {
-    private int roundRobin;
     public string GetOrchestratorConnString()
     {
-        var port = 15724;
-        // var port = roundRobin++ / 2 == 0 ? 15724 : 15725;
-        return $"http://127.0.0.1:{port}";
+        return "http://127.0.0.1:15800";
     }
 
-    public int GetOrchestratorPort(Options options)
-    {
-        return options.WorkerName + 15721;
-    }
+    public int GetOrchestratorPort(Options options) => 15800;
 
     public FileBasedCheckpointManager GetOrchestratorCheckpointManager(Options options)
     {
@@ -56,8 +50,13 @@ public class LocalDebugEnvironment : IEnvironment
         return result;
     }
 
-    public IDevice GetOrchestratorDevice(Options options) =>
-        new NativeStorageDevice($"./orchestator{options.WorkerName}.log", deleteOnClose: true);
+    public IDevice GetOrchestratorDevice(Options options)
+    {
+        var path = $"./orchestrator{options.WorkerName}.log";
+        foreach (var f in Directory.GetFiles(".", $"orchestrator{options.WorkerName}.log*"))
+            File.Delete(f);
+        return new ManagedLocalStorageDevice(path, deleteOnClose: true);
+    }
 
     public string GetServiceConnString(int index)
     {
@@ -78,8 +77,13 @@ public class LocalDebugEnvironment : IEnvironment
         return result;
     }
 
-    public IDevice GetServiceDevice(Options options) =>
-        new NativeStorageDevice($"./service{options.WorkerName}.log", deleteOnClose: true);
+    public IDevice GetServiceDevice(Options options)
+    {
+        var path = $"./service{options.WorkerName}.log";
+        foreach (var f in Directory.GetFiles(".", $"service{options.WorkerName}.log*"))
+            File.Delete(f);
+        return new ManagedLocalStorageDevice(path, deleteOnClose: true);
+    }
 
     public string GetDprFinderConnString() => "http://127.0.0.1:15720";
 

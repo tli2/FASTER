@@ -51,6 +51,80 @@ FASTER/
 | Fig 10 — DSE instrumentation overhead | `cs/research/darq/SpFasterMicrobench` | 9 |
 | Fig 11 — DSE primitive thread scalability | `cs/research/darq/StateObjectMicrobench` | 10 |
 
+## Prerequisites
+
+| Tool | Version | Required for |
+|---|---|---|
+| `dotnet` | 9.0 SDK | All experiments (local builds + microbenchmarks) |
+| `az` (Azure CLI) | ≥ 2.50 | Cluster experiments (1–8) |
+| `kubectl` | ≥ 1.27 | Cluster experiments (1–8) |
+| `helm` | v3.x | Cluster experiments (1–8) |
+| `docker` | any recent | Cluster experiments (1–8) |
+| Python 3 + `matplotlib`, `numpy`, `seaborn` | any recent | Plotting (§5) |
+
+Install prerequisites:
+
+**Linux (Ubuntu/Debian):**
+
+```sh
+# dotnet 9.0 SDK
+wget https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
+sudo dpkg -i packages-microsoft-prod.deb
+sudo apt-get update && sudo apt-get install -y dotnet-sdk-9.0
+
+# Azure CLI
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+# kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# docker
+sudo apt-get install -y docker.io
+sudo usermod -aG docker $USER   # log out and back in to apply
+
+# Python plotting
+pip install matplotlib numpy seaborn
+```
+
+**macOS:**
+
+```sh
+# dotnet 9.0 SDK
+brew install --cask dotnet-sdk
+
+# Azure CLI
+brew install azure-cli
+
+# kubectl
+brew install kubectl
+
+# helm
+brew install helm
+
+# docker (Docker Desktop)
+brew install --cask docker
+
+# Python plotting
+pip install matplotlib numpy seaborn
+```
+
+Verify your environment:
+
+```sh
+dotnet --version
+az --version
+kubectl version --client
+helm version
+docker --version
+python3 -c "import matplotlib, numpy, seaborn; print('ok')"
+```
+
+---
+
 ## Getting Started Instructions
 
 Verify the artifact builds and runs without any cloud infrastructure using the
@@ -59,13 +133,22 @@ StateObjectMicrobench (exp 10), which runs entirely on a single local machine.
 **Prerequisite:** `dotnet` 9.0 SDK — see the table in §3.1 for install links.
 
 ```sh
-git clone <this-repo> faster && cd faster
 dotnet build cs/research/darq/darq.sln -c Release
 bash AE/scripts/exp10-stateobject-microbench.sh -t 0 -n 4 -o 100000
 ```
 
-Expected output within ~2 minutes: per-thread operation counts and latency statistics
+Expected output: per-thread operation counts and latency statistics
 (median, p95) printed to stdout. Non-zero throughput values confirm the binary is working.
+
+**Step 2 — Local TravelReservation end-to-end smoke test**:
+
+```sh
+bash AE/scripts/exp-local-travel.sh
+```
+
+Expected output: per-request latencies (ms) followed by throughput and average latency
+printed to stdout. Non-zero throughput confirms the full DSE pipeline — DPR finder,
+orchestrator, and reservation service — is working on the local machine.
 
 ---
 
@@ -385,16 +468,3 @@ az storage blob download-batch \
 mkdir -p AE/figures
 python3 AE/plots.py
 ```
-
-**Pre-collected data coverage:** The `AE/data/` directory includes pre-collected results for
-most experiments. Two sub-plots require additional data not included:
-
-- **Fig 6c (bytes written):** `plot_events_bar_bytes()` needs `*-stats.csv` files from all
-  four exp04 conditions (`--speculative true|false` × `--checkpoint-interval 10|500`). Run
-  all four conditions and download results before plotting; `plots.py` silently skips this
-  panel if the files are absent.
-
-- **Fig 10 (DSE instrumentation overhead):** No pre-collected spfaster data is included.
-  After running exp09, copy `spfaster-{none,noint,int}-summary-w*.txt` and
-  `spfaster-{none,noint,int}-latencies-w*.csv` from the client machine into `AE/data/`.
-  `plots.py` skips Fig 10 if these files are absent.
