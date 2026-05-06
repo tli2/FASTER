@@ -38,6 +38,11 @@ spec:
           ports:
             - containerPort: {{ $.Values.orchestrator_port }}
             - containerPort: 4022
+          readinessProbe:
+            tcpSocket:
+              port: {{ $.Values.orchestrator_port }}
+            initialDelaySeconds: 5
+            periodSeconds: 2
           volumeMounts:
             - name: orchestratorstorage{{ .num }}
               mountPath: "/mnt/plrs"

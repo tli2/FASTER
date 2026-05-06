@@ -434,13 +434,17 @@ namespace FASTER.libdpr
                 }
 
                 // Otherwise, we need to first rebuild an in-memory precedence graph from information persisted
-                // at each state object. 
+                // at each state object.
                 recoveryComplete = false;
                 // Mark all previously known worker as unaccounted for --- we cannot make any statements about the
                 // current state of the cluster until we are sure we have up-to-date information from all of them
                 foreach (var w in backend.volatileClusterState.worldLinePrefix.Keys)
                     workersUnaccontedFor.TryAdd(w, 0);
                 countdown = new CountdownEvent(workersUnaccontedFor.Count);
+                Console.WriteLine($"[DprFinder] WARNING: Recovered state from disk referencing {workersUnaccontedFor.Count} previously known worker(s). " +
+                                  "DprFinder is in recovery mode and will not make progress until all previously known workers check in. " +
+                                  "If this is a fresh experiment run, leftover state on the DPR finder PVC is the likely cause -- " +
+                                  "ensure the PVC is clean before starting.");
             }
 
             internal bool RecoveryComplete()

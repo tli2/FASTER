@@ -27,6 +27,11 @@ spec:
           ports:
             - containerPort: 15721
             - containerPort: 4022
+          readinessProbe:
+            tcpSocket:
+              port: 15721
+            initialDelaySeconds: 5
+            periodSeconds: 2
           volumeMounts:
             - name: dprfinderstorage
               mountPath: "/mnt/plrs"

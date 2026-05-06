@@ -186,11 +186,14 @@ public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
                 // Will always be completed synchronously
                 await c.Step(requestBuilder.FinishStep());
                 stepRequestPool.Return(stepRequest);
-                rateLimiter.Release();
             }
             catch (Exception e)
             {
                 Console.WriteLine(e);
+            }
+            finally
+            {
+                rateLimiter.Release();
             }
         });
     }
@@ -233,11 +236,14 @@ public class DarqReservationWorkflowStateMachine : IWorkflowStateMachine
                 // Will always be completed synchronously
                 await c.Step(requestBuilder.FinishStep());
                 stepRequestPool.Return(stepRequest);
-                rateLimiter.Release();
             }
             catch (Exception e)
             {
                 Console.WriteLine(e);
+            }
+            finally
+            {
+                rateLimiter.Release();
             }
         });
     }

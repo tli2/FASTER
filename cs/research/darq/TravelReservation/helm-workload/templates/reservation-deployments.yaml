@@ -31,7 +31,7 @@ spec:
             - "/app/{{ $.Values.experiment }}/workloads/{{ $.Values.workload }}-service-{{ .num }}.csv"
             - "-n"
             - "{{ .num }}"
-            {{- if $.Values.services }}
+            {{- if $.Values.speculative }}
             - "-s"
             {{- end }}
           image: {{ $.Values.image }}
@@ -40,6 +40,11 @@ spec:
           ports:
             - containerPort: 15721
             - containerPort: 4022
+          readinessProbe:
+            tcpSocket:
+              port: 15721
+            initialDelaySeconds: 5
+            periodSeconds: 2
           volumeMounts:
             - name: servicestorage{{ .num }}
               mountPath: "/mnt/plrs"
