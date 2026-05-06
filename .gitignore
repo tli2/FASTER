@@ -209,3 +209,6 @@ AE/scripts/env.sh
 
 # macOS metadata
 **/.DS_Store
+
+# Workload traces — too large for git; download from Zenodo (see AE/README.md §3.5)
+AE/workloads.zip

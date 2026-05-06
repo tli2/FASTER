@@ -344,24 +344,37 @@ AE_AZURE_TABLE_CONN_STRING=$(az storage account show-connection-string \
 
 On first run, any experiment script auto-creates `AE/scripts/env.sh`
 (gitignored) with labeled placeholders, then exits. Run any expNN script
-once, paste the connection strings captured in §3.3 plus `AE_TRACES_URL`
-(see §3.5), then re-run. Each runner reads only the variables it actually
-uses, so unused fields can be left empty.
+once, paste the connection strings captured in §3.3, then re-run. Each
+runner reads only the variables it actually uses, so unused fields can be
+left empty.
 
 ### 3.5 Container image
 
 The Dockerfile at the repo root builds every experiment binary and bundles
-the workload traces from `AE/workloads/` into the image. Trace files (~1.7 GB)
-are hosted separately — set `AE_TRACES_URL` (in `env.sh` or your shell) first.
+the workload traces from `AE/workloads/` into the image. The trace archive
+(~787 MB compressed / ~1.7 GB extracted) is hosted on Zenodo
+(DOI: [10.5281/zenodo.20055042](https://doi.org/10.5281/zenodo.20055042))
+and is not checked into this repository.
+
+**Step 1 — download the workload traces:**
 
 ```sh
-# Download workload traces if missing
-if [ -z "$(ls -A AE/workloads/EventProcessing-latency/workloads 2>/dev/null)" ]; then
-    curl -L --fail --progress-bar -o /tmp/traces.zip "$AE_TRACES_URL"
-    unzip -o /tmp/traces.zip -d .
-    rm /tmp/traces.zip
-fi
+curl -L --fail --progress-bar \
+    -o AE/workloads.zip \
+    "https://zenodo.org/records/20055042/files/workloads.zip?download=1"
+```
 
+**Step 2 — unzip the archive:**
+
+```sh
+if [ -z "$(ls -A AE/workloads/EventProcessing-latency/workloads 2>/dev/null)" ]; then
+    unzip -o AE/workloads.zip -d .
+fi
+```
+
+**Step 3 — build and push the Docker image:**
+
+```sh
 docker login docker.io
 docker build -t <your-image> .
 docker push <your-image>

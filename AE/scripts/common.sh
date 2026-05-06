@@ -32,10 +32,6 @@ export AE_COSMOS_CONN_STRING=""
 # Azure Tables connection string for Orleans cluster-membership table.
 export AE_AZURE_TABLE_CONN_STRING=""
 
-# ── Required before running build-docker-image.sh ───────────────────────────
-# URL of the externally-hosted workload traces zip (~1.7 GB).
-export AE_TRACES_URL=""
-
 # ── Optional tuning ─────────────────────────────────────────────────────────
 # export AE_NAMESPACE="dse"     # Kubernetes namespace (default: dse)
 # export AE_HELM_TIMEOUT="20m"  # per-release poll timeout (default: 20m)
