@@ -207,6 +207,17 @@ az login
 az aks get-credentials --resource-group "$RG" --name "$CLUSTER"
 ```
 
+> **Environment variables:** `RG`, `LOC`, and `CLUSTER` are used throughout §3 and §4. They are
+> not persisted automatically — either redeclare them at the top of every new shell session, or add
+> them to your `~/.bashrc` / `~/.bash_profile` so they survive reboots:
+>
+> ```sh
+> echo 'export RG=DSE' >> ~/.bashrc
+> echo 'export LOC=eastus' >> ~/.bashrc
+> echo 'export CLUSTER=dse-ae' >> ~/.bashrc
+> source ~/.bashrc
+> ```
+
 ### 3.2 PersistentVolumeClaims
 
 Each cluster experiment uses a `helm-storage` chart to create PersistentVolumeClaims
@@ -249,6 +260,12 @@ AE_COSMOS_CONN_STRING=$(az cosmosdb keys list \
   -n dse-expr -g "$RG" --type connection-strings \
   --query 'connectionStrings[0].connectionString' -o tsv)
 ```
+
+> **Throughput provisioning:** The default serverless or low-RU provisioned throughput can cause
+> Cosmos DB to throttle requests during exp 3, which will degrade latency and produce unreliable
+> results. Before running exp 3, ensure the account (or its databases/containers) is provisioned
+> with sufficient RU/s to avoid 429 throttling responses. The exact throughput required depends on
+> your workload intensity; increase provisioned throughput if you observe 429 errors in the pod logs.
 
 #### Azure Managed Instance for Apache Cassandra (exp 3 only)
 
